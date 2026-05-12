@@ -76,6 +76,93 @@ CREATE INDEX IF NOT EXISTS idx_audit_admin ON admin_audit_log(admin_id);
 CREATE INDEX IF NOT EXISTS idx_audit_created ON admin_audit_log(created_at);
 `);
 
+// ── Projects schema ──────────────────────────────────────────────────────────
+db.exec(`
+CREATE TABLE IF NOT EXISTS chats (
+  id         TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title      TEXT NOT NULL DEFAULT 'New Chat',
+  model      TEXT NOT NULL DEFAULT 'claude-sonnet-4-6',
+  project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_chats_user ON chats(user_id);
+CREATE INDEX IF NOT EXISTS idx_chats_project ON chats(project_id);
+
+CREATE TABLE IF NOT EXISTS messages (
+  id         TEXT PRIMARY KEY,
+  chat_id    TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+  role       TEXT NOT NULL,
+  content    TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id);
+
+CREATE TABLE IF NOT EXISTS projects (
+  id            TEXT PRIMARY KEY,
+  owner_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name          TEXT NOT NULL,
+  description   TEXT,
+  master_prompt TEXT,
+  memory        TEXT,
+  created_at    INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS project_members (
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role       TEXT NOT NULL DEFAULT 'member',
+  added_at   INTEGER NOT NULL,
+  PRIMARY KEY (project_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS project_invites (
+  token       TEXT PRIMARY KEY,
+  project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  created_by  TEXT NOT NULL REFERENCES users(id),
+  max_uses    INTEGER NOT NULL DEFAULT 1,
+  used_count  INTEGER NOT NULL DEFAULT 0,
+  expires_at  INTEGER,
+  created_at  INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS project_files (
+  id           TEXT PRIMARY KEY,
+  project_id   TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  name         TEXT NOT NULL,
+  mime_type    TEXT NOT NULL,
+  size_bytes   INTEGER NOT NULL,
+  storage_path TEXT NOT NULL,
+  text_content TEXT,
+  uploaded_by  TEXT NOT NULL REFERENCES users(id),
+  uploaded_at  INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS file_chunks (
+  id          TEXT PRIMARY KEY,
+  file_id     TEXT NOT NULL REFERENCES project_files(id) ON DELETE CASCADE,
+  project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  chunk_index INTEGER NOT NULL,
+  content     TEXT NOT NULL,
+  embedding   BLOB NOT NULL,
+  token_count INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_file_chunks_project ON file_chunks(project_id);
+
+CREATE TABLE IF NOT EXISTS chat_attachments (
+  id           TEXT PRIMARY KEY,
+  message_id   TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  name         TEXT NOT NULL,
+  mime_type    TEXT NOT NULL,
+  size_bytes   INTEGER NOT NULL,
+  storage_path TEXT NOT NULL,
+  text_content TEXT,
+  created_at   INTEGER NOT NULL
+);
+`);
+
 export type User = {
   id: string;
   username: string;
