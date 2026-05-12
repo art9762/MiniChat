@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main, harden/security]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: build & typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build (client + server)
+        run: npm run build
+
+      - name: Smoke test (server boots, CSRF guard works)
+        run: |
+          set -euo pipefail
+          mkdir -p data-ci
+          DATA_DIR=$PWD/data-ci \
+          PORT=3099 \
+          NODE_ENV=test \
+          TRINITY_OPENAI_URL=http://x \
+          TRINITY_OPENAI_KEY=x \
+          TRINITY_ANTHROPIC_URL=http://x \
+          TRINITY_ANTHROPIC_KEY=x \
+            node server/dist/index.js &
+          SERVER_PID=$!
+          # wait for boot
+          for i in $(seq 1 20); do
+            if curl -sf http://localhost:3099/api/health >/dev/null; then
+              break
+            fi
+            sleep 0.3
+          done
+
+          health=$(curl -sf http://localhost:3099/api/health)
+          echo "health: $health"
+          test "$health" = '{"ok":true}'
+
+          # CSRF guard: POST without X-Requested-With → 403
+          code=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:3099/api/auth/login \
+            -H 'Content-Type: application/json' -d '{"username":"a","password":"bbbbbb"}')
+          echo "no-header POST: $code"
+          test "$code" = "403"
+
+          # CSRF guard: POST with header → 401 (no such user)
+          code=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:3099/api/auth/login \
+            -H 'Content-Type: application/json' -H 'X-Requested-With: minichat' \
+            -d '{"username":"a","password":"bbbbbb"}')
+          echo "with-header POST: $code"
+          test "$code" = "401"
+
+          # security headers present
+          curl -sI http://localhost:3099/api/health | tee /tmp/headers.txt
+          grep -qi '^x-frame-options' /tmp/headers.txt
+          grep -qi '^x-content-type-options' /tmp/headers.txt
+
+          kill $SERVER_PID || true

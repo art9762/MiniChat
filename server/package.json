@@ -1,9 +1,11 @@
 {
   "name": "server",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "tsx watch index.ts",
     "build": "tsc",
+    "start": "node dist/index.js",
     "seed:admin": "tsx scripts/seed-admin.ts"
   },
   "dependencies": {
@@ -13,6 +15,8 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "express-rate-limit": "^7.4.1",
+    "helmet": "^8.0.0",
     "nanoid": "^5.1.11"
   },
   "devDependencies": {
