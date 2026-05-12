@@ -1,11 +1,50 @@
 import { Sparkles, Copy, Check, User as UserIcon } from "lucide-react";
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import type { Message } from "../types";
 
 interface Props {
   message: Message;
   isLast?: boolean;
   isStreaming?: boolean;
+}
+
+function CodeBlock({ language, value }: { language: string; value: string }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    navigator.clipboard.writeText(value);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+  return (
+    <div className="code-block group/code">
+      <div className="code-header">
+        <span className="code-lang">{language || "text"}</span>
+        <button onClick={handleCopy} className="code-copy" title="Copy code">
+          {copied ? <Check size={12} /> : <Copy size={12} />}
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      <SyntaxHighlighter
+        language={language || "text"}
+        style={oneDark as any}
+        customStyle={{
+          margin: 0,
+          padding: "12px 14px",
+          background: "transparent",
+          fontSize: "12.5px",
+          lineHeight: 1.55,
+        }}
+        codeTagProps={{ style: { fontFamily: "'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, monospace" } }}
+        PreTag="div"
+      >
+        {value.replace(/\n$/, "")}
+      </SyntaxHighlighter>
+    </div>
+  );
 }
 
 export function MessageBubble({ message, isLast, isStreaming }: Props) {
@@ -40,8 +79,40 @@ export function MessageBubble({ message, isLast, isStreaming }: Props) {
         <Sparkles size={13} className="text-[#1f1f1f]" strokeWidth={2.2} />
       </div>
       <div className="min-w-0 flex-1 pt-0.5">
-        <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap break-words text-[var(--text-primary)] leading-[1.65] text-[14px]">
-          {message.content}
+        <div className="md-content text-[var(--text-primary)] leading-[1.65] text-[14px]">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              code({ inline, className, children, ...props }: any) {
+                const match = /language-(\w+)/.exec(className || "");
+                const value = String(children ?? "");
+                if (!inline && (match || value.includes("\n"))) {
+                  return <CodeBlock language={match?.[1] ?? ""} value={value} />;
+                }
+                return (
+                  <code className="md-inline-code" {...props}>
+                    {children}
+                  </code>
+                );
+              },
+              a({ children, href, ...props }: any) {
+                return (
+                  <a href={href} target="_blank" rel="noopener noreferrer" {...props}>
+                    {children}
+                  </a>
+                );
+              },
+              table({ children }: any) {
+                return (
+                  <div className="md-table-wrap">
+                    <table>{children}</table>
+                  </div>
+                );
+              },
+            }}
+          >
+            {message.content}
+          </ReactMarkdown>
           {showCursor && <span className="cursor-blink" />}
         </div>
         {message.content && (
