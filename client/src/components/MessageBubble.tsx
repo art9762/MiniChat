@@ -1,5 +1,5 @@
 import { Sparkles, Copy, Check, User as UserIcon, FileText, Image as ImageIcon, File } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -82,7 +82,53 @@ function CodeBlock({ language, value }: { language: string; value: string }) {
 export function MessageBubble({ message, isLast, isStreaming }: Props) {
   const isUser = message.role === "user";
   const [copied, setCopied] = useState(false);
-  const showCursor = !isUser && isLast && isStreaming && !message.content;
+  const [displayed, setDisplayed] = useState(isUser ? message.content : "");
+  const wasStreamingRef = useRef(false);
+  const animatedIdRef = useRef<string | null>(null);
+
+  // Reveal animation: while streaming we hide raw text and show dots;
+  // once streaming finishes we play a smooth typewriter reveal once.
+  useEffect(() => {
+    if (isUser) {
+      setDisplayed(message.content);
+      return;
+    }
+    const streamingNow = !!(isStreaming && isLast);
+    if (streamingNow) {
+      wasStreamingRef.current = true;
+      setDisplayed("");
+      return;
+    }
+    // Not streaming.
+    if (wasStreamingRef.current && animatedIdRef.current !== message.id) {
+      // Just finished streaming this message — animate.
+      wasStreamingRef.current = false;
+      animatedIdRef.current = message.id;
+      const target = message.content;
+      if (!target) {
+        setDisplayed("");
+        return;
+      }
+      const duration = Math.min(1500, 350 + target.length * 3.5);
+      const start = performance.now();
+      let raf = 0;
+      const tick = (t: number) => {
+        const p = Math.min(1, (t - start) / duration);
+        // easeOutCubic
+        const eased = 1 - Math.pow(1 - p, 3);
+        const len = Math.max(1, Math.floor(eased * target.length));
+        setDisplayed(target.slice(0, len));
+        if (p < 1) raf = requestAnimationFrame(tick);
+        else setDisplayed(target);
+      };
+      raf = requestAnimationFrame(tick);
+      return () => cancelAnimationFrame(raf);
+    }
+    // Static message (history or already animated).
+    setDisplayed(message.content);
+  }, [message.id, message.content, isStreaming, isLast, isUser]);
+
+  const showDots = !isUser && isLast && isStreaming;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(message.content);
@@ -121,42 +167,51 @@ export function MessageBubble({ message, isLast, isStreaming }: Props) {
       </div>
       <div className="min-w-0 flex-1 pt-0.5">
         <div className="md-content text-[var(--text-primary)] leading-[1.65] text-[14px]">
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            components={{
-              code({ inline, className, children, ...props }: any) {
-                const match = /language-(\w+)/.exec(className || "");
-                const value = String(children ?? "");
-                if (!inline && (match || value.includes("\n"))) {
-                  return <CodeBlock language={match?.[1] ?? ""} value={value} />;
-                }
-                return (
-                  <code className="md-inline-code" {...props}>
-                    {children}
-                  </code>
-                );
-              },
-              a({ children, href, ...props }: any) {
-                return (
-                  <a href={href} target="_blank" rel="noopener noreferrer" {...props}>
-                    {children}
-                  </a>
-                );
-              },
-              table({ children }: any) {
-                return (
-                  <div className="md-table-wrap">
-                    <table>{children}</table>
-                  </div>
-                );
-              },
-            }}
-          >
-            {message.content}
-          </ReactMarkdown>
-          {showCursor && <span className="cursor-blink" />}
+          {showDots ? (
+            <span className="typing-dots" aria-label="Печатает">
+              <span></span>
+              <span></span>
+              <span></span>
+            </span>
+          ) : (
+            <div className="reveal-fade" key={message.id}>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  code({ inline, className, children, ...props }: any) {
+                    const match = /language-(\w+)/.exec(className || "");
+                    const value = String(children ?? "");
+                    if (!inline && (match || value.includes("\n"))) {
+                      return <CodeBlock language={match?.[1] ?? ""} value={value} />;
+                    }
+                    return (
+                      <code className="md-inline-code" {...props}>
+                        {children}
+                      </code>
+                    );
+                  },
+                  a({ children, href, ...props }: any) {
+                    return (
+                      <a href={href} target="_blank" rel="noopener noreferrer" {...props}>
+                        {children}
+                      </a>
+                    );
+                  },
+                  table({ children }: any) {
+                    return (
+                      <div className="md-table-wrap">
+                        <table>{children}</table>
+                      </div>
+                    );
+                  },
+                }}
+              >
+                {displayed}
+              </ReactMarkdown>
+            </div>
+          )}
         </div>
-        {message.content && (
+        {!showDots && message.content && displayed === message.content && (
           <div className="mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
             <button
               onClick={handleCopy}
