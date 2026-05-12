@@ -11,6 +11,7 @@ import { adminRouter } from "./routes/admin.js";
 import { attachUser } from "./lib/auth.js";
 import { assertEnv, isProd } from "./lib/env.js";
 import { db } from "./lib/db.js";
+import { csrfGuard } from "./lib/csrf.js";
 
 dotenv.config();
 assertEnv();
@@ -50,6 +51,7 @@ app.use(
 app.use(express.json({ limit: "256kb" }));
 app.use(cookieParser());
 app.use(attachUser);
+app.use(csrfGuard);
 
 app.use("/api/auth", authRouter);
 app.use("/api/admin", adminRouter);

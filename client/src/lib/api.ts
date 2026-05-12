@@ -6,6 +6,7 @@ async function jsonFetch(path: string, opts: RequestInit = {}) {
     credentials: "include",
     headers: {
       "Content-Type": "application/json",
+      "X-Requested-With": "minichat",
       ...(opts.headers || {}),
     },
   });
@@ -62,7 +63,10 @@ export async function* streamChat(body: {
   const res = await fetch(`${API_BASE}/chat`, {
     method: "POST",
     credentials: "include",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Requested-With": "minichat",
+    },
     body: JSON.stringify(body),
   });
 

@@ -1,6 +1,7 @@
 {
   "name": "server",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "tsx watch index.ts",
     "build": "tsc",

@@ -62,6 +62,18 @@ CREATE TABLE IF NOT EXISTS usage_log (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_usage_user ON usage_log(user_id);
+
+CREATE TABLE IF NOT EXISTS admin_audit_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  admin_id TEXT NOT NULL,
+  action TEXT NOT NULL,
+  target_id TEXT,
+  payload TEXT,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY (admin_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_audit_admin ON admin_audit_log(admin_id);
+CREATE INDEX IF NOT EXISTS idx_audit_created ON admin_audit_log(created_at);
 `);
 
 export type User = {
