@@ -1,15 +1,47 @@
-import { Sparkles, Copy, Check, User as UserIcon } from "lucide-react";
+import { Sparkles, Copy, Check, User as UserIcon, FileText, Image as ImageIcon, File } from "lucide-react";
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
-import type { Message } from "../types";
+import type { Message, ChatAttachment } from "../types";
 
 interface Props {
   message: Message;
   isLast?: boolean;
   isStreaming?: boolean;
+}
+
+function AttachmentCard({ att }: { att: ChatAttachment }) {
+  const isImage = att.mimeType.startsWith("image/");
+  const isPdf = att.mimeType === "application/pdf";
+  const Icon = isImage ? ImageIcon : isPdf ? FileText : File;
+  const downloadUrl = `/api/chats/${att.chatId}/attachments/${att.id}/download`;
+
+  if (isImage) {
+    return (
+      <a href={downloadUrl} target="_blank" rel="noopener noreferrer" className="block">
+        <img
+          src={downloadUrl}
+          alt={att.name}
+          className="max-h-48 max-w-xs rounded-lg object-cover border border-[var(--border-subtle)]"
+          loading="lazy"
+        />
+      </a>
+    );
+  }
+
+  return (
+    <a
+      href={downloadUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex items-center gap-2 bg-[var(--bg-hover)] hover:bg-[var(--bg-active)] px-3 py-2 rounded-lg text-[13px] text-[var(--text-secondary)] transition-colors w-fit max-w-[240px]"
+    >
+      <Icon size={14} className="shrink-0 text-[var(--text-muted)]" />
+      <span className="truncate">{att.name}</span>
+    </a>
+  );
 }
 
 function CodeBlock({ language, value }: { language: string; value: string }) {
@@ -62,9 +94,18 @@ export function MessageBubble({ message, isLast, isStreaming }: Props) {
     return (
       <div className="group flex gap-3 mb-6 justify-end">
         <div className="max-w-[85%]">
-          <div className="bg-[var(--bg-tertiary)] rounded-2xl rounded-tr-md px-4 py-2.5 text-[14px] text-[var(--text-primary)] whitespace-pre-wrap break-words leading-relaxed">
-            {message.content}
-          </div>
+          {message.attachments && message.attachments.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-2 justify-end">
+              {message.attachments.map((att) => (
+                <AttachmentCard key={att.id} att={att} />
+              ))}
+            </div>
+          )}
+          {message.content && (
+            <div className="bg-[var(--bg-tertiary)] rounded-2xl rounded-tr-md px-4 py-2.5 text-[14px] text-[var(--text-primary)] whitespace-pre-wrap break-words leading-relaxed">
+              {message.content}
+            </div>
+          )}
         </div>
         <div className="w-7 h-7 rounded-full bg-[var(--bg-active)] flex items-center justify-center shrink-0 mt-0.5 text-[var(--text-secondary)]">
           <UserIcon size={14} />

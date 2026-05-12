@@ -1,5 +1,17 @@
+export type MessageContent = string | ContentBlock[];
+
+export interface ContentBlock {
+  type: string;
+  [key: string]: unknown;
+}
+
+export interface ChatMessage {
+  role: "user" | "assistant" | "system";
+  content: MessageContent;
+}
+
 export interface ChatRequest {
-  messages: { role: "user" | "assistant" | "system"; content: string }[];
+  messages: ChatMessage[];
   model: string;
   temperature?: number;
   systemPrompt?: string;

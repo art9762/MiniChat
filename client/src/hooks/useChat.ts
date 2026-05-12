@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from "react";
 import { streamChat } from "../lib/api";
-import type { Message, Settings } from "../types";
+import type { Message, Settings, ChatAttachment } from "../types";
 
 export function useChat(
   messages: Message[],
@@ -13,11 +13,12 @@ export function useChat(
   const abortRef = useRef<AbortController | null>(null);
 
   const send = useCallback(
-    async (text: string) => {
+    async (text: string, chatId?: string | null, attachments?: ChatAttachment[]) => {
       const userMsg: Message = {
         id: crypto.randomUUID(),
         role: "user",
         content: text,
+        attachments: attachments && attachments.length > 0 ? attachments : undefined,
       };
       const assistantMsg: Message = {
         id: crypto.randomUUID(),
@@ -41,6 +42,8 @@ export function useChat(
           model,
           temperature: settings.temperature,
           systemPrompt: settings.systemPrompt || undefined,
+          chatId: chatId ?? undefined,
+          attachmentIds: attachments?.map((a) => a.id),
         })) {
           if ("content" in chunk) {
             content += chunk.content;

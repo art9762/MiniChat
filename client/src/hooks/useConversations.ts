@@ -27,13 +27,14 @@ export function useConversations() {
 
   const active = conversations.find((c) => c.id === activeId) ?? null;
 
-  const create = useCallback((model: string) => {
+  const create = useCallback((model: string, projectId?: string) => {
     const conv: Conversation = {
       id: crypto.randomUUID(),
       title: "New Chat",
       messages: [],
       model,
       createdAt: Date.now(),
+      project_id: projectId ?? null,
     };
     setConversations((prev) => [conv, ...prev]);
     setActiveId(conv.id);

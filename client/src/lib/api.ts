@@ -47,6 +47,65 @@ export const api = {
     jsonFetch("/admin/token-codes", { method: "POST", body: JSON.stringify({ amount }) }),
   adminDeleteTokenCode: (code: string) =>
     jsonFetch(`/admin/token-codes/${code}`, { method: "DELETE" }),
+
+  // projects
+  listProjects: () => jsonFetch("/projects"),
+  createProject: (body: { name: string; description?: string; master_prompt?: string }) =>
+    jsonFetch("/projects", { method: "POST", body: JSON.stringify(body) }),
+  getProject: (id: string) => jsonFetch(`/projects/${id}`),
+  updateProject: (id: string, patch: Record<string, string | null>) =>
+    jsonFetch(`/projects/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  deleteProject: (id: string) => jsonFetch(`/projects/${id}`, { method: "DELETE" }),
+
+  // project members
+  removeMember: (projectId: string, userId: string) =>
+    jsonFetch(`/projects/${projectId}/members/${userId}`, { method: "DELETE" }),
+
+  // project invites
+  createInvite: (projectId: string) =>
+    jsonFetch(`/projects/${projectId}/invites`, { method: "POST", body: JSON.stringify({ maxUses: 1, expiresInHours: 72 }) }),
+  joinProject: (token: string) =>
+    jsonFetch(`/projects/join/${token}`, { method: "POST" }),
+
+  // move chat
+  moveChatToProject: (chatId: string, projectId: string | null) =>
+    jsonFetch(`/projects/chats/${chatId}`, { method: "PATCH", body: JSON.stringify({ projectId }) }),
+
+  // project files (P2 routes)
+  listFiles: (projectId: string) => jsonFetch(`/projects/${projectId}/files`),
+  uploadFile: (projectId: string, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return fetch(`/api/projects/${projectId}/files`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "X-Requested-With": "minichat" },
+      body: fd,
+    }).then(async (r) => {
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error((d as any)?.error || `HTTP ${r.status}`);
+      return d;
+    });
+  },
+  deleteFile: (projectId: string, fileId: string) =>
+    jsonFetch(`/projects/${projectId}/files/${fileId}`, { method: "DELETE" }),
+  // chat attachments
+  uploadChatAttachment: (chatId: string, file: File): Promise<{ id: string; name: string; mimeType: string; size: number; chatId: string }> => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return fetch(`/api/chats/${chatId}/attachments`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "X-Requested-With": "minichat" },
+      body: fd,
+    }).then(async (r) => {
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error((d as any)?.error || `HTTP ${r.status}`);
+      return d;
+    });
+  },
+  deleteChatAttachment: (chatId: string, attachmentId: string) =>
+    jsonFetch(`/chats/${chatId}/attachments/${attachmentId}`, { method: "DELETE" }),
 };
 
 export type StreamChunk =
@@ -59,6 +118,8 @@ export async function* streamChat(body: {
   model: string;
   temperature?: number;
   systemPrompt?: string;
+  chatId?: string;
+  attachmentIds?: string[];
 }): AsyncGenerator<StreamChunk> {
   const res = await fetch(`${API_BASE}/chat`, {
     method: "POST",
