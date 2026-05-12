@@ -1,5 +1,8 @@
 import fs from "fs";
 import path from "path";
+import { createRequire } from "module";
+
+const require = createRequire(import.meta.url);
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -51,8 +54,8 @@ export async function parseFile(
 
   // PDF
   if (mimeType === "application/pdf" || ext === ".pdf") {
-    const pdfParseModule = await import("pdf-parse");
-    const pdfParse = (pdfParseModule as any).default ?? pdfParseModule;
+    // pdf-parse is a CJS module; use createRequire for compatibility
+    const pdfParse: (buf: Buffer) => Promise<{ text: string }> = require("pdf-parse");
     const data = await pdfParse(buffer);
     return { textContent: data.text || null, mimeType: "application/pdf", normalizedName };
   }
