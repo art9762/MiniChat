@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { nanoid } from "nanoid";
+import { randomInt } from "crypto";
 import { db } from "../lib/db.js";
 import { requireAdmin } from "../lib/auth.js";
 
@@ -8,11 +8,17 @@ export const adminRouter = Router();
 adminRouter.use(requireAdmin);
 
 function genCode(prefix: string) {
-  // Human-readable: PREFIX-XXXX-XXXX
+  // Human-readable: PREFIX-XXXX-XXXX. CSPRNG (crypto.randomInt) — not Math.random.
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   const part = (n: number) =>
-    Array.from({ length: n }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+    Array.from({ length: n }, () => chars[randomInt(0, chars.length)]).join("");
   return `${prefix}-${part(4)}-${part(4)}`;
+}
+
+function countActiveAdmins(): number {
+  return (db
+    .prepare(`SELECT COUNT(*) AS n FROM users WHERE role='admin' AND status='active'`)
+    .get() as { n: number }).n;
 }
 
 // USERS
@@ -34,6 +40,15 @@ adminRouter.patch("/users/:id", (req, res) => {
 
   const user = db.prepare(`SELECT * FROM users WHERE id = ?`).get(id) as any;
   if (!user) return res.status(404).json({ error: "not found" });
+
+  // Guard: prevent removing the last active admin (demote, suspend, ban).
+  const wouldRemoveAdmin =
+    user.role === "admin" &&
+    user.status === "active" &&
+    ((role && role !== "admin") || (status && status !== "active"));
+  if (wouldRemoveAdmin && countActiveAdmins() <= 1) {
+    return res.status(400).json({ error: "cannot demote/suspend the last active admin" });
+  }
 
   const updates: string[] = [];
   const values: any[] = [];
@@ -61,6 +76,11 @@ adminRouter.patch("/users/:id", (req, res) => {
 
 adminRouter.delete("/users/:id", (req, res) => {
   if (req.params.id === req.user!.id) return res.status(400).json({ error: "cannot delete self" });
+  const target = db.prepare(`SELECT role, status FROM users WHERE id = ?`).get(req.params.id) as any;
+  if (!target) return res.status(404).json({ error: "not found" });
+  if (target.role === "admin" && target.status === "active" && countActiveAdmins() <= 1) {
+    return res.status(400).json({ error: "cannot delete the last active admin" });
+  }
   db.prepare(`DELETE FROM users WHERE id = ?`).run(req.params.id);
   res.json({ ok: true });
 });

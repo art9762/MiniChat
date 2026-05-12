@@ -1,0 +1,16 @@
+services:
+  minichat:
+    build: .
+    container_name: minichat
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3001:3001"  # bind to localhost; expose via your reverse proxy (caddy/nginx)
+    env_file:
+      - ./server/.env
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/api/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3

@@ -1,7 +1,9 @@
 node_modules
 dist
 .env
+.env.test
 data
+data-test
 *.db
 *.db-*
 .claude/

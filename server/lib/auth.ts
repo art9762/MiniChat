@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import { nanoid } from "nanoid";
 import type { Request, Response, NextFunction } from "express";
 import { db, User } from "./db.js";
+import { cookieSecure } from "./env.js";
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30d
 const COOKIE_NAME = "mc_sid";
@@ -70,7 +71,7 @@ export function setSessionCookie(res: Response, sid: string) {
   res.cookie(COOKIE_NAME, sid, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: cookieSecure(),
     maxAge: SESSION_TTL_MS,
     path: "/",
   });
