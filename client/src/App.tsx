@@ -1,10 +1,9 @@
 import { useState, useCallback } from "react";
-import { Menu } from "lucide-react";
+import { Menu, PanelRight } from "lucide-react";
 import { Sidebar } from "./components/Sidebar";
 import { ChatWindow } from "./components/ChatWindow";
 import { InputBar } from "./components/InputBar";
-import { ModelSelector } from "./components/ModelSelector";
-import { SettingsPanel } from "./components/SettingsPanel";
+import { RightPanel } from "./components/RightPanel";
 import { useConversations } from "./hooks/useConversations";
 import { useChat } from "./hooks/useChat";
 import type { Settings, Message } from "./types";
@@ -15,6 +14,7 @@ function App() {
   const { conversations, active, activeId, setActiveId, create, update, remove } =
     useConversations();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const [settings, setSettings] = useState<Settings>(() => {
     try {
       return JSON.parse(localStorage.getItem("minichat_settings") || "null") ?? {
@@ -62,7 +62,7 @@ function App() {
   };
 
   return (
-    <div className="h-full flex bg-zinc-950 text-zinc-100">
+    <div className="h-full flex bg-[var(--bg-primary)] text-[var(--text-primary)]">
       <Sidebar
         conversations={conversations}
         activeId={activeId}
@@ -73,20 +73,36 @@ function App() {
         onToggle={() => setSidebarOpen(!sidebarOpen)}
       />
       <main className="flex-1 flex flex-col min-w-0">
-        <header className="flex items-center gap-2 px-4 py-2 border-b border-zinc-800">
+        <header className="flex items-center gap-2 px-4 py-2.5 border-b border-[var(--border)]">
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="md:hidden p-2 hover:bg-zinc-800 rounded-lg"
+            className="md:hidden p-2 hover:bg-[var(--bg-hover)] rounded-lg transition-colors"
           >
             <Menu size={18} />
           </button>
-          <ModelSelector value={model} onChange={handleModelChange} />
+          <h1 className="text-sm font-semibold text-[var(--text-primary)]">
+            {active?.title || "MiniChat"}
+          </h1>
           <div className="flex-1" />
-          <SettingsPanel settings={settings} onChange={handleSettingsChange} />
+          <button
+            onClick={() => setRightPanelOpen(!rightPanelOpen)}
+            className="hidden lg:flex p-2 hover:bg-[var(--bg-hover)] rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+            title="Toggle settings panel"
+          >
+            <PanelRight size={18} />
+          </button>
         </header>
-        <ChatWindow messages={active?.messages || []} />
+        <ChatWindow messages={active?.messages || []} onSuggestionClick={handleSend} />
         <InputBar onSend={handleSend} isStreaming={isStreaming} />
       </main>
+      {rightPanelOpen && (
+        <RightPanel
+          model={model}
+          onModelChange={handleModelChange}
+          settings={settings}
+          onSettingsChange={handleSettingsChange}
+        />
+      )}
     </div>
   );
 }

@@ -1,29 +1,66 @@
 @import "tailwindcss";
 
+:root {
+  --bg-primary: #1a1a2e;
+  --bg-secondary: #1e1e35;
+  --bg-tertiary: #252542;
+  --bg-sidebar: #16162a;
+  --bg-hover: #2a2a4a;
+  --bg-active: #2e2e50;
+  --border: #2d2d4a;
+  --text-primary: #e4e4f0;
+  --text-secondary: #a8a8c0;
+  --text-muted: #6b6b8a;
+}
+
 html, body, #root {
   height: 100%;
   margin: 0;
 }
 
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 5px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #3f3f46;
+  background: var(--border);
   border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
 }
 
 .prose pre {
-  background: transparent !important;
-  padding: 0 !important;
+  background: var(--bg-tertiary) !important;
+  padding: 0.75rem 1rem !important;
   margin: 0.5rem 0 !important;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border);
 }
 .prose code {
   font-size: 0.85em;
 }
 .prose p {
   margin: 0.5em 0;
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  outline: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #3b82f6;
+  cursor: pointer;
+  border: 2px solid var(--bg-primary);
 }
