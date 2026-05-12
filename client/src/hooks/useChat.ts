@@ -6,7 +6,8 @@ export function useChat(
   messages: Message[],
   model: string,
   settings: Settings,
-  onUpdate: (msgs: Message[]) => void
+  onUpdate: (msgs: Message[]) => void,
+  onBalance?: (balance: number) => void
 ) {
   const [isStreaming, setIsStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -31,7 +32,7 @@ export function useChat(
       try {
         const apiMessages = updated
           .filter((m) => m.content || m.role === "assistant")
-          .slice(0, -1) // exclude empty assistant
+          .slice(0, -1)
           .map((m) => ({ role: m.role, content: m.content }));
 
         let content = "";
@@ -41,11 +42,17 @@ export function useChat(
           temperature: settings.temperature,
           systemPrompt: settings.systemPrompt || undefined,
         })) {
-          content += chunk;
-          const newMsgs = updated.map((m) =>
-            m.id === assistantMsg.id ? { ...m, content } : m
-          );
-          onUpdate(newMsgs);
+          if ("content" in chunk) {
+            content += chunk.content;
+            const newMsgs = updated.map((m) =>
+              m.id === assistantMsg.id ? { ...m, content } : m
+            );
+            onUpdate(newMsgs);
+          } else if ("usage" in chunk) {
+            onBalance?.(chunk.usage.balance);
+          } else if ("error" in chunk) {
+            throw new Error(chunk.error);
+          }
         }
       } catch (err: any) {
         const newMsgs = updated.map((m) =>
@@ -58,7 +65,7 @@ export function useChat(
         setIsStreaming(false);
       }
     },
-    [messages, model, settings, onUpdate]
+    [messages, model, settings, onUpdate, onBalance]
   );
 
   const stop = useCallback(() => {

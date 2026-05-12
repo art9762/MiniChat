@@ -22,3 +22,12 @@ export interface Settings {
   temperature: number;
   systemPrompt: string;
 }
+
+export interface User {
+  id: string;
+  username: string;
+  role: "user" | "admin";
+  status: "active" | "suspended" | "banned";
+  token_balance: number;
+  created_at: number;
+}

@@ -9,5 +9,5 @@
     "rootDir": ".",
     "skipLibCheck": true
   },
-  "include": ["*.ts", "routes/*.ts", "lib/*.ts"]
+  "include": ["*.ts", "routes/*.ts", "lib/*.ts", "scripts/*.ts"]
 }
