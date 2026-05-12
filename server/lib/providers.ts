@@ -1,5 +1,23 @@
 export type MessageContent = string | ContentBlock[];
 
+export interface ToolDef {
+  name: string;
+  description: string;
+  parameters: any;
+}
+
+export interface ToolCall {
+  id: string;
+  name: string;
+  arguments: any;
+}
+
+export interface ToolCallResult {
+  toolCalls: ToolCall[];
+  text: string;
+  usage: UsageInfo;
+}
+
 export interface ContentBlock {
   type: string;
   [key: string]: unknown;
@@ -24,6 +42,97 @@ export interface UsageInfo {
 
 export function isAnthropicModel(model: string): boolean {
   return model.startsWith("claude");
+}
+
+export async function callWithTools(
+  req: ChatRequest,
+  tools: ToolDef[]
+): Promise<ToolCallResult> {
+  if (isAnthropicModel(req.model)) {
+    const url = `${process.env.TRINITY_ANTHROPIC_URL}/messages`;
+    const messages = req.messages.filter((m) => m.role !== "system");
+    const anthropicTools = tools.map((t) => ({
+      name: t.name,
+      description: t.description,
+      input_schema: t.parameters,
+    }));
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": process.env.TRINITY_ANTHROPIC_KEY || "",
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: req.model,
+        max_tokens: 4096,
+        system: req.systemPrompt || undefined,
+        messages,
+        temperature: req.temperature ?? 0.7,
+        tools: anthropicTools,
+        tool_choice: { type: "auto" },
+      }),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Anthropic tools error ${response.status}: ${text.slice(0, 200)}`);
+    }
+    const data = await response.json();
+    const toolCalls: ToolCall[] = [];
+    let text = "";
+    for (const block of data.content || []) {
+      if (block.type === "tool_use") {
+        toolCalls.push({ id: block.id, name: block.name, arguments: block.input });
+      } else if (block.type === "text") {
+        text += block.text;
+      }
+    }
+    const usage: UsageInfo = {
+      inputTokens: data.usage?.input_tokens ?? 0,
+      outputTokens: data.usage?.output_tokens ?? 0,
+    };
+    return { toolCalls, text, usage };
+  } else {
+    const url = `${process.env.TRINITY_OPENAI_URL}/chat/completions`;
+    const messages = req.systemPrompt
+      ? [{ role: "system" as const, content: req.systemPrompt }, ...req.messages]
+      : req.messages;
+    const openaiTools = tools.map((t) => ({
+      type: "function" as const,
+      function: { name: t.name, description: t.description, parameters: t.parameters },
+    }));
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.TRINITY_OPENAI_KEY}`,
+      },
+      body: JSON.stringify({
+        model: req.model,
+        messages,
+        temperature: req.temperature ?? 0.7,
+        tools: openaiTools,
+        tool_choice: "auto",
+      }),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`OpenAI tools error ${response.status}: ${text.slice(0, 200)}`);
+    }
+    const data = await response.json();
+    const msg = data.choices?.[0]?.message;
+    const toolCalls: ToolCall[] = (msg?.tool_calls || []).map((tc: any) => ({
+      id: tc.id,
+      name: tc.function.name,
+      arguments: (() => { try { return JSON.parse(tc.function.arguments); } catch { return {}; } })(),
+    }));
+    const text = msg?.content || "";
+    const usage: UsageInfo = {
+      inputTokens: data.usage?.prompt_tokens ?? 0,
+      outputTokens: data.usage?.completion_tokens ?? 0,
+    };
+    return { toolCalls, text, usage };
+  }
 }
 
 type StreamCallbacks = {

@@ -1,4 +1,4 @@
-import { Sparkles, Copy, Check, User as UserIcon, FileText, Image as ImageIcon, File } from "lucide-react";
+import { Sparkles, Copy, Check, User as UserIcon, FileText, Image as ImageIcon, File, Globe, Search } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -166,6 +166,33 @@ export function MessageBubble({ message, isLast, isStreaming }: Props) {
         <Sparkles size={13} className="text-[#1f1f1f]" strokeWidth={2.2} />
       </div>
       <div className="min-w-0 flex-1 pt-0.5">
+        {/* Web search indicator */}
+        {message.searchQuery && !message.content && (
+          <div className="flex items-center gap-1.5 text-[12px] text-[var(--text-muted)] mb-2">
+            <Search size={12} className="animate-pulse" />
+            <span>Ищу: {message.searchQuery}</span>
+          </div>
+        )}
+        {message.sources && message.sources.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 text-[12px] mb-2">
+            <Globe size={12} className="text-[var(--accent)] shrink-0" />
+            <span className="text-[var(--text-muted)]">Источники:</span>
+            {message.sources.map((s, i) => {
+              let domain = s.url;
+              try { domain = new URL(s.url).hostname.replace(/^www\./, ""); } catch {}
+              return (
+                <a
+                  key={i}
+                  href={s.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[var(--accent)] hover:underline truncate max-w-[120px]"
+                  title={s.title}
+                >{domain}</a>
+              );
+            })}
+          </div>
+        )}
         <div className="md-content text-[var(--text-primary)] leading-[1.65] text-[14px]">
           {showDots ? (
             <span className="typing-dots" aria-label="Печатает">

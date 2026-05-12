@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect } from "react";
-import { ArrowUp, Square, Paperclip, X, FileText, Image as ImageIcon, File } from "lucide-react";
+import { ArrowUp, Square, Paperclip, X, FileText, Image as ImageIcon, File, Globe } from "lucide-react";
 import { api } from "../lib/api";
 import type { ChatAttachment } from "../types";
 
 interface Props {
-  onSend: (text: string, attachments: ChatAttachment[]) => void;
+  onSend: (text: string, attachments: ChatAttachment[], webSearch: boolean) => void;
   isStreaming: boolean;
   disabled?: boolean;
   modelName?: string;
@@ -33,6 +33,7 @@ export function InputBar({ onSend, isStreaming, disabled, modelName, chatId }: P
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [webSearch, setWebSearch] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -43,7 +44,7 @@ export function InputBar({ onSend, isStreaming, disabled, modelName, chatId }: P
   const handleSubmit = () => {
     const trimmed = text.trim();
     if ((!trimmed && attachments.length === 0) || isStreaming || disabled) return;
-    onSend(trimmed, attachments);
+    onSend(trimmed, attachments, webSearch);
     setText("");
     setAttachments([]);
     if (ref.current) {
@@ -124,6 +125,17 @@ export function InputBar({ onSend, isStreaming, disabled, modelName, chatId }: P
               ) : (
                 <Paperclip size={16} />
               )}
+            </button>
+            <button
+              onClick={() => setWebSearch((v) => !v)}
+              className={`shrink-0 w-9 h-9 rounded-full flex items-center justify-center transition-colors ${
+                webSearch
+                  ? "bg-[var(--accent)] text-[#1f1f1f]"
+                  : "hover:bg-[var(--bg-hover)] text-[var(--text-muted)]"
+              }`}
+              title={webSearch ? "Web search on" : "Web search off"}
+            >
+              <Globe size={16} />
             </button>
             <textarea
               ref={ref}

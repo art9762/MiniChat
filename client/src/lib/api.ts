@@ -111,7 +111,9 @@ export const api = {
 export type StreamChunk =
   | { content: string }
   | { usage: { inputTokens: number; outputTokens: number; cost: number; balance: number } }
-  | { error: string };
+  | { error: string }
+  | { toolUse: { name: string; query: string } }
+  | { toolResult: { name: string; results: { url: string; title: string }[] } };
 
 export async function* streamChat(body: {
   messages: { role: string; content: string }[];
@@ -120,6 +122,7 @@ export async function* streamChat(body: {
   systemPrompt?: string;
   chatId?: string;
   attachmentIds?: string[];
+  webSearch?: boolean;
 }): AsyncGenerator<StreamChunk> {
   const res = await fetch(`${API_BASE}/chat`, {
     method: "POST",

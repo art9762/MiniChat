@@ -199,6 +199,13 @@ CREATE INDEX IF NOT EXISTS idx_file_chunks_project ON file_chunks(project_id);
       CREATE INDEX IF NOT EXISTS idx_chat_attachments_message ON chat_attachments(message_id);
     `);
   }
+
+  // Migration: add sources column to messages
+  try {
+    db.exec(`ALTER TABLE messages ADD COLUMN sources TEXT`);
+  } catch {
+    // Column already exists — idempotent
+  }
 }
 
 export type User = {

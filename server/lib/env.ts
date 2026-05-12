@@ -13,6 +13,7 @@ export function assertEnv() {
     console.error(`[env] Copy server/.env.example -> server/.env and fill values.`);
     process.exit(1);
   }
+  if (!process.env.TAVILY_API_KEY) console.warn("[env] TAVILY_API_KEY not set — web search disabled");
   if (process.env.NODE_ENV === "production") {
     if (!process.env.CLIENT_ORIGIN) {
       console.error(`[env] CLIENT_ORIGIN is required in production`);

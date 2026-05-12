@@ -3,6 +3,8 @@ export interface Message {
   role: "user" | "assistant";
   content: string;
   attachments?: ChatAttachment[];
+  sources?: { url: string; title: string }[];
+  searchQuery?: string;
 }
 
 export interface ChatAttachment {

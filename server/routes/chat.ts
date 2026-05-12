@@ -6,7 +6,10 @@ import {
   isAnthropicModel,
   streamOpenAI,
   streamAnthropic,
+  callWithTools,
+  ToolDef,
 } from "../lib/providers.js";
+import { tavilySearch } from "../lib/websearch.js";
 import { requireAuth } from "../lib/auth.js";
 import { db } from "../lib/db.js";
 import { calcCost, estimateInputTokens, priceOf } from "../lib/pricing.js";
@@ -41,7 +44,7 @@ chatRouter.get("/models", requireAuth, (_req, res) => {
 });
 
 chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
-  const body: ChatRequest & { projectId?: string; chatId?: string; attachmentIds?: string[] } = req.body;
+  const body: ChatRequest & { projectId?: string; chatId?: string; attachmentIds?: string[]; webSearch?: boolean } = req.body;
 
   // --- Validation ---------------------------------------------------------
   if (!body || !Array.isArray(body.messages) || !body.model) {
@@ -191,7 +194,7 @@ chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
   const approxInput = messagesWithAttachments.reduce((s, m) => s + estimateInputTokens(typeof m.content === "string" ? m.content : JSON.stringify(m.content)), 0)
     + (projectSystemPrompt ? estimateInputTokens(projectSystemPrompt) : 0)
     + (body.systemPrompt ? estimateInputTokens(body.systemPrompt) : 0);
-  const hold = Math.max(1, calcCost(body.model, approxInput, MAX_OUTPUT_TOKENS));
+  const hold = Math.max(1, calcCost(body.model, approxInput, MAX_OUTPUT_TOKENS)) * (body.webSearch ? 2 : 1);
 
   const holdRes = db
     .prepare(
@@ -209,6 +212,7 @@ chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
 
   let finalized = false;
   let assistantBuffer = "";
+  let accumulatedUsage: { inputTokens: number; outputTokens: number } = { inputTokens: 0, outputTokens: 0 };
 
   // Capture last user message for memory hook
   const lastUserMsg = [...body.messages].reverse().find((m) => m.role === "user")?.content;
@@ -217,8 +221,13 @@ chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
   const settle = (usage: { inputTokens: number; outputTokens: number } | null) => {
     if (finalized) return;
     finalized = true;
-    const actualUsage = usage ?? { inputTokens: 0, outputTokens: 0 };
-    const actualCost = calcCost(body.model, actualUsage.inputTokens, actualUsage.outputTokens);
+    const merged = usage
+      ? {
+          inputTokens: accumulatedUsage.inputTokens + usage.inputTokens,
+          outputTokens: accumulatedUsage.outputTokens + usage.outputTokens,
+        }
+      : accumulatedUsage;
+    const actualCost = calcCost(body.model, merged.inputTokens, merged.outputTokens);
     const delta = hold - actualCost; // positive => refund, negative => additional charge
 
     const tx = db.transaction(() => {
@@ -229,7 +238,7 @@ chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
       db.prepare(
         `INSERT INTO usage_log (user_id, model, input_tokens, output_tokens, cost, created_at)
          VALUES (?, ?, ?, ?, ?, ?)`
-      ).run(user.id, body.model, actualUsage.inputTokens, actualUsage.outputTokens, actualCost, Date.now());
+      ).run(user.id, body.model, merged.inputTokens, merged.outputTokens, actualCost, Date.now());
     });
     tx();
 
@@ -237,9 +246,9 @@ chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
       .token_balance as number;
 
     if (!res.headersSent) {
-      res.json({ usage: { ...actualUsage, cost: actualCost, balance } });
+      res.json({ usage: { ...merged, cost: actualCost, balance } });
     } else {
-      res.write(`data: ${JSON.stringify({ usage: { ...actualUsage, cost: actualCost, balance } })}\n\n`);
+      res.write(`data: ${JSON.stringify({ usage: { ...merged, cost: actualCost, balance } })}\n\n`);
       res.write(`data: [DONE]\n\n`);
       res.end();
     }
@@ -286,14 +295,113 @@ chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
     ).run(hold, user.id);
   });
 
+  const WEB_SEARCH_TOOL: ToolDef = {
+    name: "web_search",
+    description: "Search the web for current information, news, facts after the knowledge cutoff. Use when the user asks about recent events, current data, or specific URLs.",
+    parameters: { type: "object", properties: { query: { type: "string", description: "Search query" } }, required: ["query"] },
+  };
+
   try {
     const effectiveBody = projectSystemPrompt
       ? { ...body, messages: messagesWithAttachments, systemPrompt: projectSystemPrompt }
       : { ...body, messages: messagesWithAttachments };
-    if (isAnthropicModel(body.model)) {
-      await streamAnthropic(effectiveBody, cb);
+
+    const useWebSearch = body.webSearch === true && !!process.env.TAVILY_API_KEY;
+
+    if (useWebSearch) {
+      // Phase 1: non-streaming call with tool
+      const phase1 = await callWithTools(effectiveBody, [WEB_SEARCH_TOOL]);
+      accumulatedUsage.inputTokens += phase1.usage.inputTokens;
+      accumulatedUsage.outputTokens += phase1.usage.outputTokens;
+
+      if (phase1.toolCalls.length > 0) {
+        // Emit tool use events to client
+        for (const tc of phase1.toolCalls) {
+          res.write(`data: ${JSON.stringify({ toolUse: { name: tc.name, query: tc.arguments?.query || "" } })}\n\n`);
+        }
+
+        // Execute searches in parallel
+        const searchResults = await Promise.all(
+          phase1.toolCalls.map(async (tc) => {
+            try {
+              return { tc, result: await tavilySearch(tc.arguments?.query || "") };
+            } catch (e: any) {
+              console.error("[websearch] error:", e?.message);
+              return { tc, result: { answer: null, results: [] } };
+            }
+          })
+        );
+
+        // Emit tool result events (just metadata)
+        for (const { tc, result } of searchResults) {
+          res.write(`data: ${JSON.stringify({ toolResult: { name: tc.name, results: result.results.map((r) => ({ url: r.url, title: r.title })) } })}\n\n`);
+        }
+
+        // Build extended messages for phase 2
+        let phase2Messages: typeof messagesWithAttachments;
+        if (isAnthropicModel(body.model)) {
+          // Anthropic: assistant message with tool_use blocks + user message with tool_result
+          const assistantContent: any[] = phase1.toolCalls.map((tc) => ({
+            type: "tool_use",
+            id: tc.id,
+            name: tc.name,
+            input: tc.arguments,
+          }));
+          if (phase1.text) assistantContent.unshift({ type: "text", text: phase1.text });
+
+          const toolResultContent: any[] = searchResults.map(({ tc, result }) => ({
+            type: "tool_result",
+            tool_use_id: tc.id,
+            content: [
+              ...(result.answer ? [{ type: "text", text: `Answer: ${result.answer}` }] : []),
+              ...result.results.map((r) => ({ type: "text", text: `[${r.title}](${r.url})\n${r.content}` })),
+            ],
+          }));
+
+          phase2Messages = [
+            ...effectiveBody.messages,
+            { role: "assistant" as const, content: assistantContent },
+            { role: "user" as const, content: toolResultContent },
+          ];
+        } else {
+          // OpenAI: assistant message with tool_calls + tool messages
+          const assistantMsg: any = {
+            role: "assistant",
+            content: phase1.text || null,
+            tool_calls: phase1.toolCalls.map((tc) => ({
+              id: tc.id,
+              type: "function",
+              function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
+            })),
+          };
+          const toolMsgs: any[] = searchResults.map(({ tc, result }) => ({
+            role: "tool",
+            tool_call_id: tc.id,
+            content: [
+              result.answer ? `Answer: ${result.answer}` : "",
+              ...result.results.map((r) => `[${r.title}](${r.url})\n${r.content}`),
+            ].filter(Boolean).join("\n\n"),
+          }));
+          phase2Messages = [...effectiveBody.messages, assistantMsg, ...toolMsgs];
+        }
+
+        const phase2Body = { ...effectiveBody, messages: phase2Messages };
+        if (isAnthropicModel(body.model)) {
+          await streamAnthropic(phase2Body, cb);
+        } else {
+          await streamOpenAI(phase2Body, cb);
+        }
+      } else {
+        // No tool calls — phase1 text is the answer, emit as chunks
+        if (phase1.text) cb.onContent(phase1.text);
+        cb.onDone({ inputTokens: 0, outputTokens: 0 });
+      }
     } else {
-      await streamOpenAI(effectiveBody, cb);
+      if (isAnthropicModel(body.model)) {
+        await streamAnthropic(effectiveBody, cb);
+      } else {
+        await streamOpenAI(effectiveBody, cb);
+      }
     }
   } catch (err: any) {
     cb.onError(500, err?.message || "internal error");

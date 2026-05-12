@@ -13,7 +13,7 @@ export function useChat(
   const abortRef = useRef<AbortController | null>(null);
 
   const send = useCallback(
-    async (text: string, chatId?: string | null, attachments?: ChatAttachment[]) => {
+    async (text: string, chatId?: string | null, attachments?: ChatAttachment[], webSearch?: boolean) => {
       const userMsg: Message = {
         id: crypto.randomUUID(),
         role: "user",
@@ -37,6 +37,9 @@ export function useChat(
           .map((m) => ({ role: m.role, content: m.content }));
 
         let content = "";
+        let sources: { url: string; title: string }[] | undefined;
+        let searchQuery: string | undefined;
+
         for await (const chunk of streamChat({
           messages: apiMessages,
           model,
@@ -44,17 +47,30 @@ export function useChat(
           systemPrompt: settings.systemPrompt || undefined,
           chatId: chatId ?? undefined,
           attachmentIds: attachments?.map((a) => a.id),
+          webSearch: webSearch || undefined,
         })) {
           if ("content" in chunk) {
             content += chunk.content;
             const newMsgs = updated.map((m) =>
-              m.id === assistantMsg.id ? { ...m, content } : m
+              m.id === assistantMsg.id ? { ...m, content, sources, searchQuery } : m
             );
             onUpdate(newMsgs);
           } else if ("usage" in chunk) {
             onBalance?.(chunk.usage.balance);
           } else if ("error" in chunk) {
             throw new Error(chunk.error);
+          } else if ("toolUse" in chunk) {
+            searchQuery = chunk.toolUse.query;
+            const newMsgs = updated.map((m) =>
+              m.id === assistantMsg.id ? { ...m, content, searchQuery } : m
+            );
+            onUpdate(newMsgs);
+          } else if ("toolResult" in chunk) {
+            sources = chunk.toolResult.results;
+            const newMsgs = updated.map((m) =>
+              m.id === assistantMsg.id ? { ...m, content, sources, searchQuery } : m
+            );
+            onUpdate(newMsgs);
           }
         }
       } catch (err: any) {

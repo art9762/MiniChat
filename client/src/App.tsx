@@ -93,12 +93,12 @@ function App() {
     setBalance
   );
 
-  const handleSend = (text: string, attachments?: import('./types').ChatAttachment[]) => {
+  const handleSend = (text: string, attachments?: import('./types').ChatAttachment[], webSearch?: boolean) => {
     let chatId = activeId;
     if (!chatId) {
       chatId = create(model, activeProjectId ?? undefined);
     }
-    send(text, chatId, attachments);
+    send(text, chatId, attachments, webSearch);
   };
 
   const handleModelChange = (m: string) => {
