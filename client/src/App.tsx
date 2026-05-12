@@ -93,11 +93,12 @@ function App() {
     setBalance
   );
 
-  const handleSend = (text: string) => {
-    if (!activeId) {
-      create(model, activeProjectId ?? undefined);
+  const handleSend = (text: string, attachments?: import('./types').ChatAttachment[]) => {
+    let chatId = activeId;
+    if (!chatId) {
+      chatId = create(model, activeProjectId ?? undefined);
     }
-    send(text);
+    send(text, chatId, attachments);
   };
 
   const handleModelChange = (m: string) => {
@@ -291,13 +292,14 @@ function App() {
             <ChatWindow
               messages={active?.messages || []}
               isStreaming={isStreaming}
-              onSuggestionClick={handleSend}
+              onSuggestionClick={(text) => handleSend(text)}
             />
             <InputBar
               onSend={handleSend}
               isStreaming={isStreaming}
               disabled={user.status !== "active"}
               modelName={modelName}
+              chatId={activeId}
             />
           </>
         )}

@@ -6,6 +6,7 @@ import dotenv from "dotenv";
 import path from "path";
 import fs from "fs";
 import { chatRouter } from "./routes/chat.js";
+import { attachmentsRouter } from "./routes/attachments.js";
 import { authRouter } from "./routes/auth.js";
 import { adminRouter } from "./routes/admin.js";
 import { projectsRouter } from "./routes/projects.js";
@@ -58,6 +59,7 @@ app.use("/api/auth", authRouter);
 app.use("/api/admin", adminRouter);
 app.use("/api/projects", projectsRouter);
 app.use("/api", chatRouter);
+app.use("/api/chats/:chatId/attachments", attachmentsRouter);
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 

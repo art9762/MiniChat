@@ -151,17 +151,55 @@ CREATE TABLE IF NOT EXISTS file_chunks (
 );
 CREATE INDEX IF NOT EXISTS idx_file_chunks_project ON file_chunks(project_id);
 
-CREATE TABLE IF NOT EXISTS chat_attachments (
-  id           TEXT PRIMARY KEY,
-  message_id   TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
-  name         TEXT NOT NULL,
-  mime_type    TEXT NOT NULL,
-  size_bytes   INTEGER NOT NULL,
-  storage_path TEXT NOT NULL,
-  text_content TEXT,
-  created_at   INTEGER NOT NULL
-);
 `);
+
+// Migration: create or upgrade chat_attachments with chat_id column and nullable message_id
+{
+  const caTableInfo = db.prepare(`PRAGMA table_info(chat_attachments)`).all() as { name: string }[];
+  const hasChatId = caTableInfo.some((col) => col.name === "chat_id");
+  if (caTableInfo.length === 0) {
+    // First-time creation
+    db.exec(`
+      CREATE TABLE chat_attachments (
+        id           TEXT PRIMARY KEY,
+        chat_id      TEXT NOT NULL,
+        message_id   TEXT REFERENCES messages(id) ON DELETE SET NULL,
+        uploaded_by  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name         TEXT NOT NULL,
+        mime_type    TEXT NOT NULL,
+        size_bytes   INTEGER NOT NULL,
+        storage_path TEXT NOT NULL,
+        text_content TEXT,
+        created_at   INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_chat_attachments_chat ON chat_attachments(chat_id);
+      CREATE INDEX IF NOT EXISTS idx_chat_attachments_message ON chat_attachments(message_id);
+    `);
+  } else if (!hasChatId) {
+    // Upgrade existing table without chat_id
+    db.exec(`
+      CREATE TABLE chat_attachments_new (
+        id           TEXT PRIMARY KEY,
+        chat_id      TEXT NOT NULL DEFAULT '',
+        message_id   TEXT REFERENCES messages(id) ON DELETE SET NULL,
+        uploaded_by  TEXT NOT NULL DEFAULT '',
+        name         TEXT NOT NULL,
+        mime_type    TEXT NOT NULL,
+        size_bytes   INTEGER NOT NULL,
+        storage_path TEXT NOT NULL,
+        text_content TEXT,
+        created_at   INTEGER NOT NULL
+      );
+      INSERT INTO chat_attachments_new (id, message_id, name, mime_type, size_bytes, storage_path, text_content, created_at)
+        SELECT id, message_id, name, mime_type, size_bytes, storage_path, text_content, created_at
+        FROM chat_attachments;
+      DROP TABLE chat_attachments;
+      ALTER TABLE chat_attachments_new RENAME TO chat_attachments;
+      CREATE INDEX IF NOT EXISTS idx_chat_attachments_chat ON chat_attachments(chat_id);
+      CREATE INDEX IF NOT EXISTS idx_chat_attachments_message ON chat_attachments(message_id);
+    `);
+  }
+}
 
 export type User = {
   id: string;

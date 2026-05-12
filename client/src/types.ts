@@ -2,6 +2,15 @@ export interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
+  attachments?: ChatAttachment[];
+}
+
+export interface ChatAttachment {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  chatId: string;
 }
 
 export interface Conversation {

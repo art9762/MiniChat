@@ -89,6 +89,23 @@ export const api = {
   },
   deleteFile: (projectId: string, fileId: string) =>
     jsonFetch(`/projects/${projectId}/files/${fileId}`, { method: "DELETE" }),
+  // chat attachments
+  uploadChatAttachment: (chatId: string, file: File): Promise<{ id: string; name: string; mimeType: string; size: number; chatId: string }> => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return fetch(`/api/chats/${chatId}/attachments`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "X-Requested-With": "minichat" },
+      body: fd,
+    }).then(async (r) => {
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error((d as any)?.error || `HTTP ${r.status}`);
+      return d;
+    });
+  },
+  deleteChatAttachment: (chatId: string, attachmentId: string) =>
+    jsonFetch(`/chats/${chatId}/attachments/${attachmentId}`, { method: "DELETE" }),
 };
 
 export type StreamChunk =
@@ -101,6 +118,8 @@ export async function* streamChat(body: {
   model: string;
   temperature?: number;
   systemPrompt?: string;
+  chatId?: string;
+  attachmentIds?: string[];
 }): AsyncGenerator<StreamChunk> {
   const res = await fetch(`${API_BASE}/chat`, {
     method: "POST",
