@@ -32,7 +32,10 @@ function App() {
   const { conversations, active, activeId, setActiveId, create, update, remove } =
     useConversations();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [rightPanelOpen, setRightPanelOpen] = useState(true);
+  const [rightPanelOpen, setRightPanelOpen] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia("(min-width: 1024px)").matches;
+  });
   const [adminOpen, setAdminOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [settings, setSettings] = useState<Settings>(() => {
@@ -105,22 +108,29 @@ function App() {
       <Sidebar
         conversations={conversations}
         activeId={activeId}
-        onSelect={setActiveId}
-        onCreate={() => create(model)}
+        onSelect={(id) => {
+          setActiveId(id);
+          setSidebarOpen(false);
+        }}
+        onCreate={() => {
+          create(model);
+          setSidebarOpen(false);
+        }}
         onDelete={remove}
         isOpen={sidebarOpen}
         onToggle={() => setSidebarOpen(!sidebarOpen)}
       />
       <main className="flex-1 flex flex-col min-w-0">
-        <header className="flex items-center gap-2 px-4 h-[60px] shrink-0">
+        <header className="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 h-[56px] sm:h-[60px] shrink-0">
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
             className="md:hidden btn-icon"
+            aria-label="Меню"
           >
             <Menu size={18} />
           </button>
-          <div className="flex flex-col min-w-0">
-            <span className="text-[15px] font-medium text-[var(--text-primary)] truncate leading-tight">
+          <div className="flex flex-col min-w-0 flex-1 md:flex-none">
+            <span className="text-[14px] sm:text-[15px] font-medium text-[var(--text-primary)] truncate leading-tight">
               {active?.title || "New chat"}
             </span>
             <span className="text-[11px] text-[var(--text-muted)] truncate">
@@ -128,7 +138,7 @@ function App() {
             </span>
           </div>
 
-          <div className="flex-1" />
+          <div className="hidden md:block flex-1" />
 
           {isStreaming && (
             <span className="hidden sm:inline-flex items-center gap-1.5 text-[12px] text-[var(--accent)] mr-2">
@@ -137,12 +147,14 @@ function App() {
             </span>
           )}
 
+          {/* Balance pill — compact on mobile */}
           <div
-            className="hidden sm:flex items-center gap-1.5 text-[12px] tabular-nums text-[var(--text-secondary)] px-3 py-1.5 rounded-full bg-[var(--bg-tertiary)]"
+            className="flex items-center gap-1 sm:gap-1.5 text-[11px] sm:text-[12px] tabular-nums text-[var(--text-secondary)] px-2 sm:px-3 py-1 sm:py-1.5 rounded-full bg-[var(--bg-tertiary)] shrink-0"
             title="Баланс токенов"
           >
-            <Zap size={13} className="text-[var(--warning)]" />
-            {user.token_balance.toLocaleString()}
+            <Zap size={12} className="text-[var(--warning)]" />
+            <span className="balance-full">{user.token_balance.toLocaleString()}</span>
+            <span className="balance-compact">{formatCompact(user.token_balance)}</span>
           </div>
 
           {user.role === "admin" && (
@@ -150,6 +162,7 @@ function App() {
               onClick={() => setAdminOpen(true)}
               className="btn-icon"
               title="Админ-панель"
+              aria-label="Админ-панель"
             >
               <Shield size={18} />
             </button>
@@ -158,13 +171,15 @@ function App() {
             onClick={() => setAccountOpen(true)}
             className="btn-icon"
             title="Аккаунт"
+            aria-label="Аккаунт"
           >
             <UserIcon size={18} />
           </button>
           <button
             onClick={() => setRightPanelOpen(!rightPanelOpen)}
-            className="hidden lg:flex btn-icon"
-            title="Toggle settings"
+            className="btn-icon"
+            title="Настройки"
+            aria-label="Настройки"
           >
             {rightPanelOpen ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
           </button>
@@ -188,19 +203,25 @@ function App() {
           modelName={modelName}
         />
       </main>
-      {rightPanelOpen && (
-        <RightPanel
-          model={model}
-          onModelChange={handleModelChange}
-          settings={settings}
-          onSettingsChange={handleSettingsChange}
-        />
-      )}
+      <RightPanel
+        model={model}
+        onModelChange={handleModelChange}
+        settings={settings}
+        onSettingsChange={handleSettingsChange}
+        isOpen={rightPanelOpen}
+        onClose={() => setRightPanelOpen(false)}
+      />
 
       {adminOpen && <AdminPanel onClose={() => setAdminOpen(false)} />}
       {accountOpen && <AccountMenu onClose={() => setAccountOpen(false)} />}
     </div>
   );
+}
+
+function formatCompact(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1).replace(/\.0$/, "") + "M";
+  if (n >= 1_000) return (n / 1_000).toFixed(n >= 10_000 ? 0 : 1).replace(/\.0$/, "") + "k";
+  return n.toString();
 }
 
 export default App;

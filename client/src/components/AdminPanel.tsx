@@ -94,23 +94,23 @@ export function AdminPanel({ onClose }: Props) {
   const copy = (s: string) => navigator.clipboard.writeText(s);
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-      <div className="w-full max-w-5xl h-[85vh] bg-[var(--bg-secondary)] border border-[var(--border)] rounded-2xl flex flex-col overflow-hidden">
-        <header className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-stretch sm:items-center justify-center sm:p-4">
+      <div className="w-full sm:max-w-5xl h-full sm:h-[85vh] bg-[var(--bg-secondary)] border-0 sm:border border-[var(--border)] sm:rounded-2xl flex flex-col overflow-hidden">
+        <header className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)] shrink-0">
           <h2 className="text-sm font-semibold">Админ-панель</h2>
           <button
             onClick={onClose}
-            className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+            className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] px-2 py-1"
           >
             Закрыть ✕
           </button>
         </header>
-        <div className="flex border-b border-[var(--border)]">
+        <div className="flex border-b border-[var(--border)] overflow-x-auto shrink-0">
           {(["users", "invites", "tokens", "stats"] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`px-4 py-2 text-sm font-medium transition-colors ${
+              className={`px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap ${
                 tab === t
                   ? "text-blue-400 border-b-2 border-blue-400"
                   : "text-[var(--text-muted)] hover:text-[var(--text-primary)]"

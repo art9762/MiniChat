@@ -1,4 +1,4 @@
-import { ChevronDown, Check, SlidersHorizontal, Sparkles } from "lucide-react";
+import { ChevronDown, Check, SlidersHorizontal, Sparkles, X } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import type { Model, Settings } from "../types";
 
@@ -33,9 +33,11 @@ interface Props {
   onModelChange: (model: string) => void;
   settings: Settings;
   onSettingsChange: (s: Settings) => void;
+  isOpen: boolean;
+  onClose: () => void;
 }
 
-export function RightPanel({ model, onModelChange, settings, onSettingsChange }: Props) {
+export function RightPanel({ model, onModelChange, settings, onSettingsChange, isOpen, onClose }: Props) {
   const [modelOpen, setModelOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const current = MODELS.find((m) => m.id === model);
@@ -49,11 +51,33 @@ export function RightPanel({ model, onModelChange, settings, onSettingsChange }:
   }, []);
 
   return (
-    <aside className="w-[300px] bg-[var(--bg-primary)] flex flex-col overflow-y-auto hidden lg:flex border-l border-[var(--border-subtle)]">
+    <>
+      {/* Mobile/tablet overlay */}
+      {isOpen && (
+        <div
+          className="fixed inset-0 bg-black/60 z-40 lg:hidden"
+          onClick={onClose}
+        />
+      )}
+      <aside
+        className={`fixed lg:static top-0 right-0 h-full w-[88vw] max-w-[340px] lg:w-[300px] z-50 lg:z-auto bg-[var(--bg-primary)] flex flex-col overflow-y-auto border-l border-[var(--border-subtle)] transition-transform duration-200 lg:transition-none ${
+          isOpen
+            ? "translate-x-0"
+            : "translate-x-full lg:translate-x-0 lg:hidden"
+        }`}
+      >
       <div className="px-5 py-5">
         <div className="flex items-center gap-2 mb-5">
           <SlidersHorizontal size={16} className="text-[var(--text-secondary)]" />
           <h2 className="text-[14px] font-medium text-[var(--text-primary)]">Run settings</h2>
+          <div className="flex-1" />
+          <button
+            onClick={onClose}
+            className="btn-icon lg:hidden"
+            aria-label="Закрыть"
+          >
+            <X size={18} />
+          </button>
         </div>
 
         {/* Model */}
@@ -160,5 +184,6 @@ export function RightPanel({ model, onModelChange, settings, onSettingsChange }:
         </div>
       </div>
     </aside>
+    </>
   );
 }

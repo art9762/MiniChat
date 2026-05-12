@@ -29,11 +29,11 @@ export function AccountMenu({ onClose }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/40 flex items-start justify-end p-4"
+      className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center sm:justify-end p-4"
       onClick={onClose}
     >
       <div
-        className="w-80 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-2xl p-4 mt-12 mr-4 space-y-4"
+        className="w-full max-w-sm sm:w-80 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-2xl p-4 mt-12 sm:mr-4 space-y-4"
         onClick={(e) => e.stopPropagation()}
       >
         <div>

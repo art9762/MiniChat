@@ -34,7 +34,10 @@ export function InputBar({ onSend, isStreaming, disabled, modelName }: Props) {
   };
 
   return (
-    <div className="px-4 pb-4 pt-2">
+    <div
+      className="px-2 sm:px-4 pt-2"
+      style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 12px)" }}
+    >
       <div className="max-w-3xl mx-auto">
         <div className="relative flex items-end bg-[var(--bg-tertiary)] rounded-3xl px-2 py-2 transition-shadow focus-within:shadow-[0_2px_8px_rgba(0,0,0,0.3)]">
           <button
