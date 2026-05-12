@@ -1,7 +1,10 @@
 import { Router } from "express";
 import { nanoid } from "nanoid";
+import multer from "multer";
+import path from "path";
 import { db } from "../lib/db.js";
 import { requireAuth } from "../lib/auth.js";
+import { parseFile, saveFile, readFile, deleteFile, MAX_FILE_SIZE, MAX_PROJECT_SIZE } from "../lib/files.js";
 
 export const projectsRouter = Router();
 
@@ -286,6 +289,146 @@ projectsRouter.delete("/:id/members/:userId", requireAuth, (req, res) => {
     .run(projectId, targetUserId);
 
   if (result.changes === 0) return res.status(404).json({ error: "member not found" });
+  res.json({ ok: true });
+});
+
+// ── File routes ──────────────────────────────────────────────────────────────
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_FILE_SIZE },
+});
+
+// POST /projects/:id/files — upload file
+projectsRouter.post("/:id/files", requireAuth, upload.single("file"), async (req, res) => {
+  const user = (req as any).user;
+  const projectId = req.params["id"] as string;
+
+  try {
+    requireProjectMember(projectId, user.id);
+  } catch (e) {
+    return sendErr(res, e);
+  }
+
+  if (!req.file) return res.status(400).json({ error: "no file uploaded" });
+
+  const { buffer, mimetype, originalname, size } = req.file;
+
+  let parsed: Awaited<ReturnType<typeof parseFile>>;
+  try {
+    parsed = await parseFile(buffer, mimetype, originalname);
+  } catch (e: any) {
+    return sendErr(res, e);
+  }
+
+  const fileId = nanoid();
+  const now = Date.now();
+
+  try {
+    const result = db.transaction(() => {
+      // Atomic quota check
+      const totalRow = db
+        .prepare(`SELECT COALESCE(SUM(size_bytes),0) as total FROM project_files WHERE project_id = ?`)
+        .get(projectId) as { total: number };
+      if (totalRow.total + size > MAX_PROJECT_SIZE) {
+        throw Object.assign(new Error("project storage quota exceeded (150 MB)"), { status: 413 });
+      }
+
+      const storagePath = saveFile(projectId, fileId, buffer);
+
+      db.prepare(
+        `INSERT INTO project_files (id, project_id, name, mime_type, size_bytes, storage_path, text_content, uploaded_by, uploaded_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(fileId, projectId, parsed.normalizedName, parsed.mimeType, size, storagePath, parsed.textContent ?? null, user.id, now);
+
+      return db.prepare(`SELECT id, project_id, name, mime_type, size_bytes, uploaded_by, uploaded_at FROM project_files WHERE id = ?`).get(fileId);
+    })();
+
+    res.status(201).json(result);
+  } catch (e: any) {
+    // Clean up file if DB insert failed (best-effort)
+    try {
+      const dataDir = process.env.DATA_DIR || path.join(process.cwd(), "data");
+      deleteFile(path.join(dataDir, "files", projectId, fileId));
+    } catch {}
+    return sendErr(res, e);
+  }
+});
+
+// GET /projects/:id/files — list files
+projectsRouter.get("/:id/files", requireAuth, (req, res) => {
+  const user = (req as any).user;
+  const projectId = req.params["id"] as string;
+  try {
+    requireProjectMember(projectId, user.id);
+  } catch (e) {
+    return sendErr(res, e);
+  }
+
+  const files = db
+    .prepare(`SELECT id, project_id, name, mime_type, size_bytes, uploaded_by, uploaded_at FROM project_files WHERE project_id = ? ORDER BY uploaded_at DESC`)
+    .all(projectId);
+  res.json(files);
+});
+
+// GET /projects/:id/files/:fileId — download
+projectsRouter.get("/:id/files/:fileId", requireAuth, (req, res) => {
+  const user = (req as any).user;
+  const projectId = req.params["id"] as string;
+  const fileId = req.params["fileId"] as string;
+
+  try {
+    requireProjectMember(projectId, user.id);
+  } catch (e) {
+    return sendErr(res, e);
+  }
+
+  const file = db
+    .prepare(`SELECT * FROM project_files WHERE id = ? AND project_id = ?`)
+    .get(fileId, projectId) as any;
+
+  if (!file) return res.status(404).json({ error: "file not found" });
+
+  let buffer: Buffer;
+  try {
+    buffer = readFile(file.storage_path);
+  } catch {
+    return res.status(404).json({ error: "file data not found on disk" });
+  }
+
+  res.setHeader("Content-Type", file.mime_type);
+  res.setHeader("Content-Disposition", `attachment; filename="${file.name}"`);
+  res.setHeader("Content-Length", buffer.length);
+  res.send(buffer);
+});
+
+// DELETE /projects/:id/files/:fileId — owner or uploader can delete
+projectsRouter.delete("/:id/files/:fileId", requireAuth, (req, res) => {
+  const user = (req as any).user;
+  const projectId = req.params["id"] as string;
+  const fileId = req.params["fileId"] as string;
+
+  let member: { role: string };
+  try {
+    member = requireProjectMember(projectId, user.id);
+  } catch (e) {
+    return sendErr(res, e);
+  }
+
+  const file = db
+    .prepare(`SELECT * FROM project_files WHERE id = ? AND project_id = ?`)
+    .get(fileId, projectId) as any;
+
+  if (!file) return res.status(404).json({ error: "file not found" });
+
+  // Only owner or uploader can delete
+  if (member.role !== "owner" && file.uploaded_by !== user.id) {
+    return res.status(403).json({ error: "only owner or uploader can delete this file" });
+  }
+
+  db.prepare(`DELETE FROM project_files WHERE id = ?`).run(fileId);
+  deleteFile(file.storage_path);
+
   res.json({ ok: true });
 });
 
