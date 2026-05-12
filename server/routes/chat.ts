@@ -9,6 +9,8 @@ import { requireAuth } from "../lib/auth.js";
 import { db } from "../lib/db.js";
 import { calcCost, estimateInputTokens, priceOf } from "../lib/pricing.js";
 import { chatLimiter } from "../lib/rateLimit.js";
+import { retrieve, buildContextBlock } from "../lib/rag.js";
+import { getMember } from "./projects.js";
 
 export const chatRouter = Router();
 
@@ -35,7 +37,7 @@ chatRouter.get("/models", requireAuth, (_req, res) => {
 });
 
 chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
-  const body: ChatRequest = req.body;
+  const body: ChatRequest & { projectId?: string } = req.body;
 
   // --- Validation ---------------------------------------------------------
   if (!body || !Array.isArray(body.messages) || !body.model) {
@@ -55,6 +57,47 @@ chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
     totalChars += m.content.length;
   }
   if (typeof body.systemPrompt === "string") totalChars += body.systemPrompt.length;
+
+  // --- Project RAG context -----------------------------------------------
+  let projectSystemPrompt: string | undefined;
+  if (body.projectId) {
+    const user = req.user!;
+    // Verify membership
+    const membership = getMember(body.projectId, user.id);
+    if (!membership) {
+      return res.status(403).json({ error: "not a member of this project" });
+    }
+
+    const project = db.prepare(`SELECT master_prompt, memory FROM projects WHERE id = ?`).get(body.projectId) as
+      | { master_prompt: string | null; memory: string | null }
+      | undefined;
+
+    if (project) {
+      // Get the last user message as query for retrieval
+      const lastUserMsg = [...body.messages].reverse().find((m) => m.role === "user");
+      const query = lastUserMsg?.content ?? "";
+
+      let contextBlock = "";
+      if (query) {
+        try {
+          const chunks = await retrieve(body.projectId, query, 5);
+          contextBlock = buildContextBlock(chunks);
+        } catch (err: any) {
+          console.error("[chat] RAG retrieve error:", err?.message);
+        }
+      }
+
+      const parts: string[] = [];
+      if (project.master_prompt) parts.push(project.master_prompt);
+      if (project.memory) parts.push(`[Project memory]\n${project.memory}`);
+      if (contextBlock) parts.push(`[Retrieved context]\n${contextBlock}`);
+
+      if (parts.length > 0) {
+        projectSystemPrompt = parts.join("\n\n");
+        totalChars += projectSystemPrompt.length;
+      }
+    }
+  }
   if (totalChars > MAX_TOTAL_CHARS) {
     return res.status(413).json({ error: `payload too large (>${MAX_TOTAL_CHARS} chars)` });
   }
@@ -67,7 +110,9 @@ chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
   // --- Balance hold (prevents free-Opus race) ------------------------------
   // Estimate maximum possible cost: actual input tokens + max_output_tokens at this model's price.
   // Atomically reserve from the balance; refund the difference after the stream.
-  const approxInput = body.messages.reduce((s, m) => s + estimateInputTokens(m.content), 0);
+  const approxInput = body.messages.reduce((s, m) => s + estimateInputTokens(m.content), 0)
+    + (projectSystemPrompt ? estimateInputTokens(projectSystemPrompt) : 0)
+    + (body.systemPrompt ? estimateInputTokens(body.systemPrompt) : 0);
   const hold = Math.max(1, calcCost(body.model, approxInput, MAX_OUTPUT_TOKENS));
 
   const holdRes = db
@@ -150,10 +195,13 @@ chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
   });
 
   try {
+    const effectiveBody = projectSystemPrompt
+      ? { ...body, systemPrompt: projectSystemPrompt }
+      : body;
     if (isAnthropicModel(body.model)) {
-      await streamAnthropic(body, cb);
+      await streamAnthropic(effectiveBody, cb);
     } else {
-      await streamOpenAI(body, cb);
+      await streamOpenAI(effectiveBody, cb);
     }
   } catch (err: any) {
     cb.onError(500, err?.message || "internal error");

@@ -5,12 +5,13 @@ import path from "path";
 import { db } from "../lib/db.js";
 import { requireAuth } from "../lib/auth.js";
 import { parseFile, saveFile, readFile, deleteFile, MAX_FILE_SIZE, MAX_PROJECT_SIZE } from "../lib/files.js";
+import { indexFile } from "../lib/rag.js";
 
 export const projectsRouter = Router();
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function getMember(projectId: string, userId: string) {
+export function getMember(projectId: string, userId: string) {
   return db
     .prepare(`SELECT role FROM project_members WHERE project_id = ? AND user_id = ?`)
     .get(projectId, userId) as { role: string } | undefined;
@@ -345,6 +346,13 @@ projectsRouter.post("/:id/files", requireAuth, upload.single("file"), async (req
     })();
 
     res.status(201).json(result);
+
+    // Async RAG indexing — don't block the response
+    if (parsed.textContent) {
+      indexFile(fileId, projectId, parsed.textContent).catch((err) =>
+        console.error(`[projects] indexFile failed for ${fileId}:`, err?.message)
+      );
+    }
   } catch (e: any) {
     // Clean up file if DB insert failed (best-effort)
     try {
