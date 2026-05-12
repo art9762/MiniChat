@@ -1,4 +1,4 @@
-import { Sparkles, Copy, Check, User as UserIcon, FileText, Image as ImageIcon, File, Globe, Search } from "lucide-react";
+import { Sparkles, Copy, Check, User as UserIcon, FileText, Image as ImageIcon, File, Globe, Search, Code } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -75,6 +75,33 @@ function CodeBlock({ language, value }: { language: string; value: string }) {
       >
         {value.replace(/\n$/, "")}
       </SyntaxHighlighter>
+    </div>
+  );
+}
+
+function CodeExecBlock({ output }: { output: { stdout: string; stderr?: string } }) {
+  const [expanded, setExpanded] = useState(false);
+  const hasContent = output.stdout || output.stderr;
+  return (
+    <div className="mb-2 rounded-lg border border-[var(--border-subtle)] overflow-hidden text-[12px]">
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="flex items-center gap-1.5 w-full px-3 py-1.5 bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-muted)] transition-colors"
+      >
+        <Code size={12} />
+        <span>💻 ran code</span>
+        {hasContent && (
+          <span className="ml-auto text-[10px]">{expanded ? "▲" : "▼"}</span>
+        )}
+      </button>
+      {expanded && hasContent && (
+        <pre className="px-3 py-2 bg-[var(--bg-primary)] text-[var(--text-secondary)] overflow-x-auto whitespace-pre-wrap break-words max-h-48">
+          {output.stdout}
+          {output.stderr && (
+            <span className="text-[var(--danger)]">{"\n" + output.stderr}</span>
+          )}
+        </pre>
+      )}
     </div>
   );
 }
@@ -172,6 +199,23 @@ export function MessageBubble({ message, isLast, isStreaming }: Props) {
             <Search size={12} className="animate-pulse" />
             <span>Ищу: {message.searchQuery}</span>
           </div>
+        )}
+        {/* URL fetch indicator */}
+        {message.fetchedUrl && (
+          <div className="flex items-center gap-1.5 text-[12px] text-[var(--text-muted)] mb-2">
+            <Globe size={12} className="text-[var(--accent)] shrink-0" />
+            <span>Fetched: </span>
+            <a
+              href={message.fetchedUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[var(--accent)] hover:underline truncate max-w-[200px]"
+            >{message.fetchedUrl}</a>
+          </div>
+        )}
+        {/* Code execution indicator */}
+        {message.codeOutput && (
+          <CodeExecBlock output={message.codeOutput} />
         )}
         {message.sources && message.sources.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5 text-[12px] mb-2">

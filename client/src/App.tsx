@@ -14,7 +14,7 @@ import { useChat } from "./hooks/useChat";
 import { useAuth } from "./auth/AuthProvider";
 import { AuthScreen } from "./auth/AuthScreen";
 import { useProjects } from "./hooks/useProjects";
-import type { Settings, Message, Project } from "./types";
+import type { Settings, Message, Project, ChatSettings } from "./types";
 
 const DEFAULT_MODEL = "claude-sonnet-4-6";
 
@@ -67,9 +67,32 @@ function App() {
     }
   });
 
+  const DEFAULT_CHAT_SETTINGS: ChatSettings = {
+    webSearch: false,
+    urlFetch: false,
+    codeExec: false,
+    attachmentsEnabled: true,
+    memoryAutoUpdate: true,
+    rag: true,
+  };
+
+  const [chatSettings, setChatSettings] = useState<ChatSettings>(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem("minichat:chat-settings") || "null");
+      return stored ? { ...DEFAULT_CHAT_SETTINGS, ...stored } : DEFAULT_CHAT_SETTINGS;
+    } catch {
+      return DEFAULT_CHAT_SETTINGS;
+    }
+  });
+
   const handleSettingsChange = (s: Settings) => {
     setSettings(s);
     localStorage.setItem("minichat_settings", JSON.stringify(s));
+  };
+
+  const handleChatSettingsChange = (s: ChatSettings) => {
+    setChatSettings(s);
+    localStorage.setItem("minichat:chat-settings", JSON.stringify(s));
   };
 
   const model = active?.model || DEFAULT_MODEL;
@@ -93,12 +116,12 @@ function App() {
     setBalance
   );
 
-  const handleSend = (text: string, attachments?: import('./types').ChatAttachment[], webSearch?: boolean) => {
+  const handleSend = (text: string, attachments?: import('./types').ChatAttachment[]) => {
     let chatId = activeId;
     if (!chatId) {
       chatId = create(model, activeProjectId ?? undefined);
     }
-    send(text, chatId, attachments, webSearch);
+    send(text, chatId, attachments, chatSettings);
   };
 
   const handleModelChange = (m: string) => {
@@ -300,6 +323,7 @@ function App() {
               disabled={user.status !== "active"}
               modelName={modelName}
               chatId={activeId}
+              attachmentsEnabled={chatSettings.attachmentsEnabled}
             />
           </>
         )}
@@ -311,6 +335,9 @@ function App() {
           onModelChange={handleModelChange}
           settings={settings}
           onSettingsChange={handleSettingsChange}
+          chatSettings={chatSettings}
+          onChatSettingsChange={handleChatSettingsChange}
+          isProjectChat={!!active?.project_id}
           isOpen={rightPanelOpen}
           onClose={() => setRightPanelOpen(false)}
         />

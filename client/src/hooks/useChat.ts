@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from "react";
 import { streamChat } from "../lib/api";
-import type { Message, Settings, ChatAttachment } from "../types";
+import type { Message, Settings, ChatAttachment, ChatSettings } from "../types";
 
 export function useChat(
   messages: Message[],
@@ -13,7 +13,7 @@ export function useChat(
   const abortRef = useRef<AbortController | null>(null);
 
   const send = useCallback(
-    async (text: string, chatId?: string | null, attachments?: ChatAttachment[], webSearch?: boolean) => {
+    async (text: string, chatId?: string | null, attachments?: ChatAttachment[], chatSettings?: ChatSettings) => {
       const userMsg: Message = {
         id: crypto.randomUUID(),
         role: "user",
@@ -39,6 +39,8 @@ export function useChat(
         let content = "";
         let sources: { url: string; title: string }[] | undefined;
         let searchQuery: string | undefined;
+        let fetchedUrl: string | undefined;
+        let codeOutput: { stdout: string; stderr?: string } | undefined;
 
         for await (const chunk of streamChat({
           messages: apiMessages,
@@ -47,12 +49,14 @@ export function useChat(
           systemPrompt: settings.systemPrompt || undefined,
           chatId: chatId ?? undefined,
           attachmentIds: attachments?.map((a) => a.id),
-          webSearch: webSearch || undefined,
+          webSearch: chatSettings?.webSearch || undefined,
+          urlFetch: chatSettings?.urlFetch || undefined,
+          codeExec: chatSettings?.codeExec || undefined,
         })) {
           if ("content" in chunk) {
             content += chunk.content;
             const newMsgs = updated.map((m) =>
-              m.id === assistantMsg.id ? { ...m, content, sources, searchQuery } : m
+              m.id === assistantMsg.id ? { ...m, content, sources, searchQuery, fetchedUrl, codeOutput } : m
             );
             onUpdate(newMsgs);
           } else if ("usage" in chunk) {
@@ -69,6 +73,18 @@ export function useChat(
             sources = chunk.toolResult.results;
             const newMsgs = updated.map((m) =>
               m.id === assistantMsg.id ? { ...m, content, sources, searchQuery } : m
+            );
+            onUpdate(newMsgs);
+          } else if ("urlFetch" in chunk) {
+            fetchedUrl = chunk.urlFetch.url;
+            const newMsgs = updated.map((m) =>
+              m.id === assistantMsg.id ? { ...m, content, fetchedUrl } : m
+            );
+            onUpdate(newMsgs);
+          } else if ("codeExec" in chunk) {
+            codeOutput = chunk.codeExec;
+            const newMsgs = updated.map((m) =>
+              m.id === assistantMsg.id ? { ...m, content, codeOutput } : m
             );
             onUpdate(newMsgs);
           }
