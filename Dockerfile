@@ -1,35 +1,37 @@
-# Multi-stage build: client (Vite) + server (TS) → single small Node image.
+# Multi-stage build for npm workspaces (client + server) → single small Node image.
 
-# ---------- 1. client build ----------
-FROM node:20-alpine AS client-build
-WORKDIR /app/client
-COPY client/package*.json ./
-RUN npm ci
-COPY client/ ./
-RUN npm run build
-
-# ---------- 2. server build ----------
-FROM node:20-alpine AS server-build
-WORKDIR /app/server
+# ---------- 1. install full workspace (with dev deps) for builds ----------
+FROM node:20-alpine AS deps
+WORKDIR /app
 RUN apk add --no-cache python3 make g++  # for better-sqlite3 native build
-COPY server/package*.json ./
+COPY package.json package-lock.json ./
+COPY client/package.json ./client/
+COPY server/package.json ./server/
 RUN npm ci
-COPY server/ ./
+
+# ---------- 2. build client + server ----------
+FROM deps AS build
+COPY client ./client
+COPY server ./server
 RUN npm run build
 
-# ---------- 3. runtime ----------
+# ---------- 3. runtime: prod deps only ----------
 FROM node:20-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
-RUN apk add --no-cache tini && addgroup -S app && adduser -S app -G app
+RUN apk add --no-cache python3 make g++ tini \
+ && addgroup -S app && adduser -S app -G app
 
-# Server prod deps only
-COPY server/package*.json ./server/
-RUN cd server && npm ci --omit=dev && npm cache clean --force
+COPY package.json package-lock.json ./
+COPY server/package.json ./server/
+# Install prod deps for the server workspace only (rebuilds better-sqlite3 natively).
+RUN npm ci --omit=dev --workspace server --include-workspace-root \
+ && npm cache clean --force \
+ && apk del python3 make g++
 
-# Compiled server + built client
-COPY --from=server-build /app/server/dist ./server/dist
-COPY --from=client-build /app/client/dist ./client/dist
+# Compiled server + built client SPA
+COPY --from=build /app/server/dist ./server/dist
+COPY --from=build /app/client/dist ./client/dist
 
 RUN mkdir -p /app/data && chown -R app:app /app
 USER app
