@@ -113,7 +113,9 @@ export type StreamChunk =
   | { usage: { inputTokens: number; outputTokens: number; cost: number; balance: number } }
   | { error: string }
   | { toolUse: { name: string; query: string } }
-  | { toolResult: { name: string; results: { url: string; title: string }[] } };
+  | { toolResult: { name: string; results: { url: string; title: string }[] } }
+  | { urlFetch: { url: string } }
+  | { codeExec: { stdout: string; stderr?: string } };
 
 export async function* streamChat(body: {
   messages: { role: string; content: string }[];
@@ -123,6 +125,8 @@ export async function* streamChat(body: {
   chatId?: string;
   attachmentIds?: string[];
   webSearch?: boolean;
+  urlFetch?: boolean;
+  codeExec?: boolean;
 }): AsyncGenerator<StreamChunk> {
   const res = await fetch(`${API_BASE}/chat`, {
     method: "POST",

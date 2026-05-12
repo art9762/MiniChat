@@ -5,6 +5,8 @@ export interface Message {
   attachments?: ChatAttachment[];
   sources?: { url: string; title: string }[];
   searchQuery?: string;
+  fetchedUrl?: string;
+  codeOutput?: { stdout: string; stderr?: string };
 }
 
 export interface ChatAttachment {
@@ -66,6 +68,15 @@ export interface ProjectDetail extends Project {
 export interface Settings {
   temperature: number;
   systemPrompt: string;
+}
+
+export interface ChatSettings {
+  webSearch: boolean;
+  urlFetch: boolean;
+  codeExec: boolean;
+  attachmentsEnabled: boolean;
+  memoryAutoUpdate: boolean;
+  rag: boolean;
 }
 
 export interface User {

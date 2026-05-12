@@ -1,3 +1,10 @@
+networks:
+  app-net:
+    driver: bridge
+  sandbox-net:
+    driver: bridge
+    internal: true
+
 services:
   minichat:
     build: .
@@ -9,8 +16,25 @@ services:
       - ./server/.env
     volumes:
       - ./data:/app/data
+    networks:
+      - app-net
+      - sandbox-net
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/api/health"]
       interval: 30s
       timeout: 3s
       retries: 3
+
+  sandbox:
+    build: ./sandbox
+    container_name: minichat-sandbox
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 1
+    read_only: true
+    tmpfs:
+      - /tmp:exec,size=64m
+    networks:
+      - sandbox-net
+    environment:
+      - NODE_ENV=production

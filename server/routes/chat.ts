@@ -10,6 +10,7 @@ import {
   ToolDef,
 } from "../lib/providers.js";
 import { tavilySearch } from "../lib/websearch.js";
+import { fetchUrl } from "../lib/urlfetch.js";
 import { requireAuth } from "../lib/auth.js";
 import { db } from "../lib/db.js";
 import { calcCost, estimateInputTokens, priceOf } from "../lib/pricing.js";
@@ -44,7 +45,7 @@ chatRouter.get("/models", requireAuth, (_req, res) => {
 });
 
 chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
-  const body: ChatRequest & { projectId?: string; chatId?: string; attachmentIds?: string[]; webSearch?: boolean } = req.body;
+  const body: ChatRequest & { projectId?: string; chatId?: string; attachmentIds?: string[]; webSearch?: boolean; urlFetch?: boolean } = req.body;
 
   // --- Validation ---------------------------------------------------------
   if (!body || !Array.isArray(body.messages) || !body.model) {
@@ -194,7 +195,7 @@ chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
   const approxInput = messagesWithAttachments.reduce((s, m) => s + estimateInputTokens(typeof m.content === "string" ? m.content : JSON.stringify(m.content)), 0)
     + (projectSystemPrompt ? estimateInputTokens(projectSystemPrompt) : 0)
     + (body.systemPrompt ? estimateInputTokens(body.systemPrompt) : 0);
-  const hold = Math.max(1, calcCost(body.model, approxInput, MAX_OUTPUT_TOKENS)) * (body.webSearch ? 2 : 1);
+  const hold = Math.max(1, calcCost(body.model, approxInput, MAX_OUTPUT_TOKENS)) * ((body.webSearch || body.urlFetch) ? 2 : 1);
 
   const holdRes = db
     .prepare(
@@ -301,53 +302,82 @@ chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
     parameters: { type: "object", properties: { query: { type: "string", description: "Search query" } }, required: ["query"] },
   };
 
+  const URL_FETCH_TOOL: ToolDef = {
+    name: "url_fetch",
+    description: "Fetch the content of a URL. Use when the user shares a link or asks to read a specific webpage.",
+    parameters: { type: "object", properties: { url: { type: "string", description: "The URL to fetch" } }, required: ["url"] },
+  };
+
   try {
     const effectiveBody = projectSystemPrompt
       ? { ...body, messages: messagesWithAttachments, systemPrompt: projectSystemPrompt }
       : { ...body, messages: messagesWithAttachments };
 
     const useWebSearch = body.webSearch === true && !!process.env.TAVILY_API_KEY;
+    const useUrlFetch = body.urlFetch === true;
 
-    if (useWebSearch) {
-      // Phase 1: non-streaming call with tool
-      const webSearchSystem = "You have access to a web_search tool. When the user asks about anything that may require current/online information, call web_search immediately. Do not announce that you will search — just call the tool. After receiving results, answer based on them and cite sources.";
+    const activeTools: ToolDef[] = [];
+    if (useWebSearch) activeTools.push(WEB_SEARCH_TOOL);
+    if (useUrlFetch) activeTools.push(URL_FETCH_TOOL);
+
+    if (activeTools.length > 0) {
+      // Phase 1: non-streaming call with tools
+      const toolSystemParts: string[] = [];
+      if (useWebSearch) toolSystemParts.push("You have access to a web_search tool. When the user asks about anything that may require current/online information, call web_search immediately. Do not announce that you will search — just call the tool. After receiving results, answer based on them and cite sources.");
+      if (useUrlFetch) toolSystemParts.push("You have access to a url_fetch tool. When the user shares a link or asks you to read a webpage, call url_fetch with the URL. After receiving the page content, answer based on it.");
+      const toolSystem = toolSystemParts.join("\n");
       const phase1Body = {
         ...effectiveBody,
         systemPrompt: effectiveBody.systemPrompt
-          ? `${effectiveBody.systemPrompt}\n\n${webSearchSystem}`
-          : webSearchSystem,
+          ? `${effectiveBody.systemPrompt}\n\n${toolSystem}`
+          : toolSystem,
       };
-      const phase1 = await callWithTools(phase1Body, [WEB_SEARCH_TOOL]);
+      const phase1 = await callWithTools(phase1Body, activeTools);
       accumulatedUsage.inputTokens += phase1.usage.inputTokens;
       accumulatedUsage.outputTokens += phase1.usage.outputTokens;
 
       if (phase1.toolCalls.length > 0) {
         // Emit tool use events to client
         for (const tc of phase1.toolCalls) {
-          res.write(`data: ${JSON.stringify({ toolUse: { name: tc.name, query: tc.arguments?.query || "" } })}\n\n`);
+          res.write(`data: ${JSON.stringify({ toolUse: { name: tc.name, query: tc.arguments?.query || tc.arguments?.url || "" } })}\n\n`);
         }
 
-        // Execute searches in parallel
-        const searchResults = await Promise.all(
+        // Execute tool calls in parallel
+        const toolResults = await Promise.all(
           phase1.toolCalls.map(async (tc) => {
             try {
-              return { tc, result: await tavilySearch(tc.arguments?.query || "") };
+              switch (tc.name) {
+                case "web_search": {
+                  const r = await tavilySearch(tc.arguments?.query || "");
+                  return { tc, kind: "web_search" as const, webResult: r, urlResult: null };
+                }
+                case "url_fetch": {
+                  const r = await fetchUrl(tc.arguments?.url || "");
+                  return { tc, kind: "url_fetch" as const, webResult: null, urlResult: r };
+                }
+                default:
+                  throw new Error(`Unknown tool: ${tc.name}`);
+              }
             } catch (e: any) {
-              console.error("[websearch] error:", e?.message);
-              return { tc, result: { answer: null, results: [] } };
+              console.error(`[tool:${tc.name}] error:`, e?.message);
+              if (tc.name === "web_search") return { tc, kind: "web_search" as const, webResult: { answer: null, results: [] }, urlResult: null };
+              return { tc, kind: "url_fetch" as const, webResult: null, urlResult: { url: tc.arguments?.url || "", title: "", content: `Error fetching URL: ${e?.message}` } };
             }
           })
         );
 
-        // Emit tool result events (just metadata)
-        for (const { tc, result } of searchResults) {
-          res.write(`data: ${JSON.stringify({ toolResult: { name: tc.name, results: result.results.map((r) => ({ url: r.url, title: r.title })) } })}\n\n`);
+        // Emit tool result events
+        for (const tr of toolResults) {
+          if (tr.kind === "web_search" && tr.webResult) {
+            res.write(`data: ${JSON.stringify({ toolResult: { name: tr.tc.name, results: tr.webResult.results.map((r) => ({ url: r.url, title: r.title })) } })}\n\n`);
+          } else if (tr.kind === "url_fetch" && tr.urlResult) {
+            res.write(`data: ${JSON.stringify({ toolResult: { name: tr.tc.name, results: [{ url: tr.urlResult.url, title: tr.urlResult.title }] } })}\n\n`);
+          }
         }
 
         // Build extended messages for phase 2
         let phase2Messages: typeof messagesWithAttachments;
         if (isAnthropicModel(body.model)) {
-          // Anthropic: assistant message with tool_use blocks + user message with tool_result
           const assistantContent: any[] = phase1.toolCalls.map((tc) => ({
             type: "tool_use",
             id: tc.id,
@@ -356,14 +386,20 @@ chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
           }));
           if (phase1.text) assistantContent.unshift({ type: "text", text: phase1.text });
 
-          const toolResultContent: any[] = searchResults.map(({ tc, result }) => ({
-            type: "tool_result",
-            tool_use_id: tc.id,
-            content: [
-              ...(result.answer ? [{ type: "text", text: `Answer: ${result.answer}` }] : []),
-              ...result.results.map((r) => ({ type: "text", text: `[${r.title}](${r.url})\n${r.content}` })),
-            ],
-          }));
+          const toolResultContent: any[] = toolResults.map(({ tc, kind, webResult, urlResult }) => {
+            let content: any[];
+            if (kind === "web_search" && webResult) {
+              content = [
+                ...(webResult.answer ? [{ type: "text", text: `Answer: ${webResult.answer}` }] : []),
+                ...webResult.results.map((r) => ({ type: "text", text: `[${r.title}](${r.url})\n${r.content}` })),
+              ];
+            } else if (kind === "url_fetch" && urlResult) {
+              content = [{ type: "text", text: `URL: ${urlResult.url}\nTitle: ${urlResult.title}\n\n${urlResult.content}` }];
+            } else {
+              content = [{ type: "text", text: "No result" }];
+            }
+            return { type: "tool_result", tool_use_id: tc.id, content };
+          });
 
           phase2Messages = [
             ...effectiveBody.messages,
@@ -371,7 +407,6 @@ chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
             { role: "user" as const, content: toolResultContent },
           ];
         } else {
-          // OpenAI: assistant message with tool_calls + tool messages
           const assistantMsg: any = {
             role: "assistant",
             content: phase1.text || null,
@@ -381,14 +416,20 @@ chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
               function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
             })),
           };
-          const toolMsgs: any[] = searchResults.map(({ tc, result }) => ({
-            role: "tool",
-            tool_call_id: tc.id,
-            content: [
-              result.answer ? `Answer: ${result.answer}` : "",
-              ...result.results.map((r) => `[${r.title}](${r.url})\n${r.content}`),
-            ].filter(Boolean).join("\n\n"),
-          }));
+          const toolMsgs: any[] = toolResults.map(({ tc, kind, webResult, urlResult }) => {
+            let content: string;
+            if (kind === "web_search" && webResult) {
+              content = [
+                webResult.answer ? `Answer: ${webResult.answer}` : "",
+                ...webResult.results.map((r) => `[${r.title}](${r.url})\n${r.content}`),
+              ].filter(Boolean).join("\n\n");
+            } else if (kind === "url_fetch" && urlResult) {
+              content = `URL: ${urlResult.url}\nTitle: ${urlResult.title}\n\n${urlResult.content}`;
+            } else {
+              content = "No result";
+            }
+            return { role: "tool", tool_call_id: tc.id, content };
+          });
           phase2Messages = [...effectiveBody.messages, assistantMsg, ...toolMsgs];
         }
 

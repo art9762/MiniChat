@@ -14,6 +14,7 @@ export function assertEnv() {
     process.exit(1);
   }
   if (!process.env.TAVILY_API_KEY) console.warn("[env] TAVILY_API_KEY not set — web search disabled");
+  if (!process.env.SANDBOX_URL) console.warn("[env] SANDBOX_URL not set — defaulting to http://sandbox:3100");
   if (process.env.NODE_ENV === "production") {
     if (!process.env.CLIENT_ORIGIN) {
       console.error(`[env] CLIENT_ORIGIN is required in production`);
