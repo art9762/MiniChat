@@ -4,9 +4,10 @@ import { ArrowUp, Square } from "lucide-react";
 interface Props {
   onSend: (text: string) => void;
   isStreaming: boolean;
+  disabled?: boolean;
 }
 
-export function InputBar({ onSend, isStreaming }: Props) {
+export function InputBar({ onSend, isStreaming, disabled }: Props) {
   const [text, setText] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
 
@@ -16,7 +17,7 @@ export function InputBar({ onSend, isStreaming }: Props) {
 
   const handleSubmit = () => {
     const trimmed = text.trim();
-    if (!trimmed || isStreaming) return;
+    if (!trimmed || isStreaming || disabled) return;
     onSend(trimmed);
     setText("");
     if (ref.current) {
@@ -40,7 +41,8 @@ export function InputBar({ onSend, isStreaming }: Props) {
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Type a message..."
+            disabled={disabled}
+            placeholder={disabled ? "Чат недоступен" : "Type a message..."}
             rows={1}
             className="flex-1 resize-none bg-transparent text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none min-h-[24px] max-h-[200px] leading-relaxed"
             style={{ height: "auto", overflow: "hidden" }}
@@ -52,7 +54,7 @@ export function InputBar({ onSend, isStreaming }: Props) {
           />
           <button
             onClick={handleSubmit}
-            disabled={!text.trim() && !isStreaming}
+            disabled={disabled || (!text.trim() && !isStreaming)}
             className="shrink-0 w-8 h-8 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:bg-[var(--bg-hover)] disabled:text-[var(--text-muted)] flex items-center justify-center transition-colors ml-2"
           >
             {isStreaming ? <Square size={12} /> : <ArrowUp size={16} />}
