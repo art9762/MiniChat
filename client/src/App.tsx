@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { Menu, PanelRight, Shield, User as UserIcon } from "lucide-react";
+import { Menu, PanelRightClose, PanelRightOpen, Shield, User as UserIcon, Zap } from "lucide-react";
 import { Sidebar } from "./components/Sidebar";
 import { ChatWindow } from "./components/ChatWindow";
 import { InputBar } from "./components/InputBar";
@@ -13,6 +13,19 @@ import { AuthScreen } from "./auth/AuthScreen";
 import type { Settings, Message } from "./types";
 
 const DEFAULT_MODEL = "claude-sonnet-4-6";
+
+const MODEL_NAMES: Record<string, string> = {
+  "claude-opus-4-7": "Claude Opus 4.7",
+  "claude-opus-4-6": "Claude Opus 4.6",
+  "claude-sonnet-4-6": "Claude Sonnet 4.6",
+  "claude-haiku-4-5": "Claude Haiku 4.5",
+  "claude-sonnet-4-6-1m": "Claude Sonnet 4.6 (1M)",
+  "claude-opus-4-6-1m": "Claude Opus 4.6 (1M)",
+  "claude-opus-4-7-1m": "Claude Opus 4.7 (1M)",
+  "gpt-5.4": "GPT-5.4",
+  "gpt-5.2": "GPT-5.2",
+  "gpt-5-mini": "GPT-5 Mini",
+};
 
 function App() {
   const { user, loading, setBalance } = useAuth();
@@ -39,6 +52,7 @@ function App() {
   };
 
   const model = active?.model || DEFAULT_MODEL;
+  const modelName = MODEL_NAMES[model] || model;
 
   const handleMessagesUpdate = useCallback(
     (msgs: Message[]) => {
@@ -80,15 +94,11 @@ function App() {
 
   if (user.status === "banned") {
     return (
-      <div className="h-full flex items-center justify-center bg-[var(--bg-primary)] text-red-400">
+      <div className="h-full flex items-center justify-center bg-[var(--bg-primary)] text-[var(--danger)]">
         Аккаунт заблокирован.
       </div>
     );
   }
-
-  const currentModelName = model.includes("claude")
-    ? model.replace("claude-", "").replace(/-/g, " ")
-    : model;
 
   return (
     <div className="h-full flex bg-[var(--bg-primary)] text-[var(--text-primary)]">
@@ -102,70 +112,80 @@ function App() {
         onToggle={() => setSidebarOpen(!sidebarOpen)}
       />
       <main className="flex-1 flex flex-col min-w-0">
-        <header className="flex items-center gap-2 px-4 h-11 border-b border-[var(--border)] shrink-0">
+        <header className="flex items-center gap-2 px-4 h-[60px] shrink-0">
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="md:hidden p-1.5 hover:bg-[var(--bg-hover)] rounded-md transition-colors"
+            className="md:hidden btn-icon"
           >
-            <Menu size={16} />
+            <Menu size={18} />
           </button>
-          <span className="text-xs font-medium text-[var(--text-secondary)] truncate">
-            {active?.title || "MiniChat"}
-          </span>
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-muted)] font-mono">
-            {currentModelName}
-          </span>
+          <div className="flex flex-col min-w-0">
+            <span className="text-[15px] font-medium text-[var(--text-primary)] truncate leading-tight">
+              {active?.title || "New chat"}
+            </span>
+            <span className="text-[11px] text-[var(--text-muted)] truncate">
+              {modelName}
+            </span>
+          </div>
+
           <div className="flex-1" />
+
           {isStreaming && (
-            <span className="text-[10px] text-[var(--accent)] animate-pulse font-medium">
-              Streaming...
+            <span className="hidden sm:inline-flex items-center gap-1.5 text-[12px] text-[var(--accent)] mr-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse" />
+              Streaming
             </span>
           )}
 
-          <div className="flex items-center gap-1">
-            <span
-              className="text-xs tabular-nums text-[var(--text-muted)] px-2 py-1 rounded-md bg-[var(--bg-tertiary)]"
-              title="Баланс токенов"
-            >
-              ⚡ {user.token_balance.toLocaleString()}
-            </span>
-            {user.role === "admin" && (
-              <button
-                onClick={() => setAdminOpen(true)}
-                className="p-2 hover:bg-[var(--bg-hover)] rounded-lg text-[var(--text-muted)] hover:text-amber-400 transition-colors"
-                title="Админ-панель"
-              >
-                <Shield size={18} />
-              </button>
-            )}
-            <button
-              onClick={() => setAccountOpen(true)}
-              className="p-2 hover:bg-[var(--bg-hover)] rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-              title="Аккаунт"
-            >
-              <UserIcon size={18} />
-            </button>
-            <button
-              onClick={() => setRightPanelOpen(!rightPanelOpen)}
-              className="hidden lg:flex p-2 hover:bg-[var(--bg-hover)] rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-              title="Toggle settings panel"
-            >
-              <PanelRight size={18} />
-            </button>
+          <div
+            className="hidden sm:flex items-center gap-1.5 text-[12px] tabular-nums text-[var(--text-secondary)] px-3 py-1.5 rounded-full bg-[var(--bg-tertiary)]"
+            title="Баланс токенов"
+          >
+            <Zap size={13} className="text-[var(--warning)]" />
+            {user.token_balance.toLocaleString()}
           </div>
+
+          {user.role === "admin" && (
+            <button
+              onClick={() => setAdminOpen(true)}
+              className="btn-icon"
+              title="Админ-панель"
+            >
+              <Shield size={18} />
+            </button>
+          )}
+          <button
+            onClick={() => setAccountOpen(true)}
+            className="btn-icon"
+            title="Аккаунт"
+          >
+            <UserIcon size={18} />
+          </button>
+          <button
+            onClick={() => setRightPanelOpen(!rightPanelOpen)}
+            className="hidden lg:flex btn-icon"
+            title="Toggle settings"
+          >
+            {rightPanelOpen ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
+          </button>
         </header>
 
         {user.status === "suspended" && (
-          <div className="bg-amber-500/10 border-b border-amber-500/30 text-amber-400 text-xs px-4 py-2">
+          <div className="bg-[#fdd663]/10 border-b border-[#fdd663]/30 text-[var(--warning)] text-[13px] px-5 py-2.5">
             Аккаунт временно приостановлен. Чат недоступен.
           </div>
         )}
 
-        <ChatWindow messages={active?.messages || []} onSuggestionClick={handleSend} />
+        <ChatWindow
+          messages={active?.messages || []}
+          isStreaming={isStreaming}
+          onSuggestionClick={handleSend}
+        />
         <InputBar
           onSend={handleSend}
           isStreaming={isStreaming}
           disabled={user.status !== "active"}
+          modelName={modelName}
         />
       </main>
       {rightPanelOpen && (
