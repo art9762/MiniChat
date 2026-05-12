@@ -1,23 +1,28 @@
 # Minichat — TODO
 
-## 🗂 Projects (workspace-style folders)
+## 🗂 Projects (workspace-style folders) — SPEC LOCKED
 
 **Idea:** "Project" — это папка с чатами + собственная память/контекст для агента.
 
 ### Состав проекта
 - **Папка чатов** — все чаты внутри проекта группируются вместе
-- **Описание** — короткое summary (что это за проект, зачем)
-- **Master prompt** — системный промпт, который автоматически подставляется во все чаты проекта
-- **Файлы** — загруженные документы/тексты, доступные агенту как контекст
-- **Память** — отдельная "long-term" заметка/состояние, обновляемое между сессиями
+- **Описание** — короткое summary
+- **Master prompt** — системный промпт, автоинжект во все чаты проекта
+- **Файлы** — загруженные документы, доступные через RAG
+- **Память** — long-term заметка, **обновляется агентом автоматически**, юзер видит и может редактировать
 
-### Шеринг
-- Владелец проекта может **дать доступ друзьям** (по user id / по invite-ссылке)
-- Роли: `owner` / `editor` / `viewer` (?)
-- Совместная работа: несколько юзеров видят одни и те же чаты/файлы/память
-- Биллинг: токены списываются с **автора сообщения**, не с владельца проекта
+### Решения (locked)
+1. **Лимиты файлов:** 10 МБ на файл, 150 МБ на проект
+2. **Форматы:** text (md/txt/code), images (png/jpg/webp), PDF, docx — с парсингом
+   - **Те же форматы доступны как attachments в обычных чатах (вне проектов)**
+3. **Контекст-стратегия:** **RAG** (embeddings + chunking + retrieval). Master prompt всегда инжектится целиком.
+4. **Память проекта:** агент пишет автоматически после каждого чата (через summarize-pass), юзер может править textarea
+5. **Шеринг:** **invite-ссылка** с одноразовым/limited токеном (`/projects/:id/join/:token`)
+6. **Роли:** `owner` / `member` (member = full read+write кроме delete project и member management)
+7. **Биллинг:** токены списываются с **автора сообщения**
+8. **Перенос существующих чатов в проект:** да, сразу (drag или меню "Move to project")
 
-### Схема БД (draft)
+### Схема БД
 ```sql
 CREATE TABLE projects (
   id TEXT PRIMARY KEY,
@@ -25,7 +30,7 @@ CREATE TABLE projects (
   name TEXT NOT NULL,
   description TEXT,
   master_prompt TEXT,
-  memory TEXT,                    -- long-term notes
+  memory TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -33,52 +38,68 @@ CREATE TABLE projects (
 CREATE TABLE project_members (
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  role       TEXT NOT NULL DEFAULT 'editor',  -- owner | editor | viewer
+  role       TEXT NOT NULL DEFAULT 'member',  -- owner | member
   added_at   INTEGER NOT NULL,
   PRIMARY KEY (project_id, user_id)
 );
 
-CREATE TABLE project_files (
-  id          TEXT PRIMARY KEY,
+CREATE TABLE project_invites (
+  token       TEXT PRIMARY KEY,
   project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  name        TEXT NOT NULL,
-  content     TEXT NOT NULL,      -- text content (or path to blob)
-  size_bytes  INTEGER NOT NULL,
-  uploaded_by TEXT NOT NULL REFERENCES users(id),
-  uploaded_at INTEGER NOT NULL
+  created_by  TEXT NOT NULL REFERENCES users(id),
+  max_uses    INTEGER NOT NULL DEFAULT 1,
+  used_count  INTEGER NOT NULL DEFAULT 0,
+  expires_at  INTEGER,
+  created_at  INTEGER NOT NULL
 );
 
--- chats.project_id (nullable — chat outside any project)
+CREATE TABLE project_files (
+  id           TEXT PRIMARY KEY,
+  project_id   TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  name         TEXT NOT NULL,
+  mime_type    TEXT NOT NULL,
+  size_bytes   INTEGER NOT NULL,
+  storage_path TEXT NOT NULL,         -- on-disk path under data/files/
+  text_content TEXT,                  -- extracted text (NULL for images stored as vision)
+  uploaded_by  TEXT NOT NULL REFERENCES users(id),
+  uploaded_at  INTEGER NOT NULL
+);
+
+CREATE TABLE file_chunks (
+  id          TEXT PRIMARY KEY,
+  file_id     TEXT NOT NULL REFERENCES project_files(id) ON DELETE CASCADE,
+  project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  chunk_index INTEGER NOT NULL,
+  content     TEXT NOT NULL,
+  embedding   BLOB NOT NULL,          -- Float32Array buffer
+  token_count INTEGER NOT NULL
+);
+CREATE INDEX idx_file_chunks_project ON file_chunks(project_id);
+
+-- Chat attachments (reusable for plain chats too)
+CREATE TABLE chat_attachments (
+  id           TEXT PRIMARY KEY,
+  message_id   TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  name         TEXT NOT NULL,
+  mime_type    TEXT NOT NULL,
+  size_bytes   INTEGER NOT NULL,
+  storage_path TEXT NOT NULL,
+  text_content TEXT,
+  created_at   INTEGER NOT NULL
+);
+
 ALTER TABLE chats ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE SET NULL;
 ```
 
-### API (draft)
-- `GET    /projects` — мои проекты (own + shared)
-- `POST   /projects` — создать
-- `GET    /projects/:id` — детали
-- `PATCH  /projects/:id` — name/description/master_prompt/memory
-- `DELETE /projects/:id` — только owner
-- `POST   /projects/:id/members` — { userId | inviteCode, role }
-- `DELETE /projects/:id/members/:userId`
-- `POST   /projects/:id/files` — multipart/text upload
-- `GET    /projects/:id/files`
-- `DELETE /projects/:id/files/:fileId`
-- Chat-level: при создании chat можно передать `projectId`; master_prompt + files инжектятся в context.
+### Phases (roadmap)
+- **P1 — Backend skeleton:** migrations, CRUD `/projects`, `/projects/:id/members`, invite flow. Move chat to project. *(ready to start)*
+- **P2 — File parsing module:** shared lib `server/lib/files.ts` — parse PDF/docx/images/text. Used by projects + chat attachments.
+- **P3 — RAG:** embeddings via Trinity, chunking (~500 tok), cosine retrieval, top-K injection into chat context. Master prompt always prepended.
+- **P4 — Auto-memory:** post-chat hook → summarize → update `projects.memory`.
+- **P5 — UI:** sidebar Projects section, project view (Chats / Files / Settings / Members), drag-to-project.
+- **P6 — Chat attachments UI:** paperclip in composer, send images/PDFs/docs in plain chats.
 
-### UI
-- Сайдбар: секция **Projects** над списком чатов
-- Клик на проект → раскрывает чаты проекта + кнопка "New chat in project"
-- Внутри проекта: вкладки **Chats / Files / Settings / Members**
-- Settings: name, description, master prompt (большой textarea), memory (textarea)
-- Members: список + invite by username
-
-### Открытые вопросы
-- Лимит размера файлов? (small project, 1MB на файл, 10MB на проект?)
-- Master prompt + файлы как считать в токенах? — учитывать в estimate перед send
-- Делиться проектом по ссылке или только по username? — username проще
-- Можно ли переносить существующий чат в проект? — да, drag-n-drop или меню
-
----
-
-## Прочее
-- (security hardening — DONE, merged to main)
+### Открытые вопросы (можно решить по ходу)
+- Embedding model: какая в Trinity? (надо проверить /v1/embeddings)
+- Картинки в RAG: вместо embedding — multimodal vision call при retrieval, или OCR + text embed?
+- Storage backend для файлов: пока локальный диск `data/files/{projectId}/{fileId}`
