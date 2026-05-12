@@ -11,6 +11,7 @@ import {
 } from "../lib/providers.js";
 import { tavilySearch } from "../lib/websearch.js";
 import { fetchUrl } from "../lib/urlfetch.js";
+import { execCode } from "../lib/codeexec.js";
 import { requireAuth } from "../lib/auth.js";
 import { db } from "../lib/db.js";
 import { calcCost, estimateInputTokens, priceOf } from "../lib/pricing.js";
@@ -45,7 +46,7 @@ chatRouter.get("/models", requireAuth, (_req, res) => {
 });
 
 chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
-  const body: ChatRequest & { projectId?: string; chatId?: string; attachmentIds?: string[]; webSearch?: boolean; urlFetch?: boolean } = req.body;
+  const body: ChatRequest & { projectId?: string; chatId?: string; attachmentIds?: string[]; webSearch?: boolean; urlFetch?: boolean; codeExec?: boolean } = req.body;
 
   // --- Validation ---------------------------------------------------------
   if (!body || !Array.isArray(body.messages) || !body.model) {
@@ -195,7 +196,7 @@ chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
   const approxInput = messagesWithAttachments.reduce((s, m) => s + estimateInputTokens(typeof m.content === "string" ? m.content : JSON.stringify(m.content)), 0)
     + (projectSystemPrompt ? estimateInputTokens(projectSystemPrompt) : 0)
     + (body.systemPrompt ? estimateInputTokens(body.systemPrompt) : 0);
-  const hold = Math.max(1, calcCost(body.model, approxInput, MAX_OUTPUT_TOKENS)) * ((body.webSearch || body.urlFetch) ? 2 : 1);
+  const hold = Math.max(1, calcCost(body.model, approxInput, MAX_OUTPUT_TOKENS)) * ((body.webSearch || body.urlFetch || body.codeExec) ? 2 : 1);
 
   const holdRes = db
     .prepare(
@@ -308,6 +309,19 @@ chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
     parameters: { type: "object", properties: { url: { type: "string", description: "The URL to fetch" } }, required: ["url"] },
   };
 
+  const CODE_EXEC_TOOL: ToolDef = {
+    name: "code_exec",
+    description: "Execute Python or JavaScript code in a secure sandbox. Use for calculations, data processing, testing snippets. No network, no filesystem persistence.",
+    parameters: {
+      type: "object",
+      properties: {
+        language: { type: "string", enum: ["python", "javascript"], description: "Programming language" },
+        code: { type: "string", description: "Code to execute" },
+      },
+      required: ["language", "code"],
+    },
+  };
+
   try {
     const effectiveBody = projectSystemPrompt
       ? { ...body, messages: messagesWithAttachments, systemPrompt: projectSystemPrompt }
@@ -315,16 +329,19 @@ chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
 
     const useWebSearch = body.webSearch === true && !!process.env.TAVILY_API_KEY;
     const useUrlFetch = body.urlFetch === true;
+    const useCodeExec = body.codeExec === true;
 
     const activeTools: ToolDef[] = [];
     if (useWebSearch) activeTools.push(WEB_SEARCH_TOOL);
     if (useUrlFetch) activeTools.push(URL_FETCH_TOOL);
+    if (useCodeExec) activeTools.push(CODE_EXEC_TOOL);
 
     if (activeTools.length > 0) {
       // Phase 1: non-streaming call with tools
       const toolSystemParts: string[] = [];
       if (useWebSearch) toolSystemParts.push("You have access to a web_search tool. When the user asks about anything that may require current/online information, call web_search immediately. Do not announce that you will search — just call the tool. After receiving results, answer based on them and cite sources.");
       if (useUrlFetch) toolSystemParts.push("You have access to a url_fetch tool. When the user shares a link or asks you to read a webpage, call url_fetch with the URL. After receiving the page content, answer based on it.");
+      if (useCodeExec) toolSystemParts.push("You have access to a code_exec tool. When the user asks for calculations, data analysis, or wants to run code, use code_exec with language=python or language=javascript. Show the code you're running and interpret the results.");
       const toolSystem = toolSystemParts.join("\n");
       const phase1Body = {
         ...effectiveBody,
@@ -349,19 +366,24 @@ chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
               switch (tc.name) {
                 case "web_search": {
                   const r = await tavilySearch(tc.arguments?.query || "");
-                  return { tc, kind: "web_search" as const, webResult: r, urlResult: null };
+                  return { tc, kind: "web_search" as const, webResult: r, urlResult: null, codeResult: null };
                 }
                 case "url_fetch": {
                   const r = await fetchUrl(tc.arguments?.url || "");
-                  return { tc, kind: "url_fetch" as const, webResult: null, urlResult: r };
+                  return { tc, kind: "url_fetch" as const, webResult: null, urlResult: r, codeResult: null };
+                }
+                case "code_exec": {
+                  const r = await execCode(tc.arguments?.language || "python", tc.arguments?.code || "");
+                  return { tc, kind: "code_exec" as const, webResult: null, urlResult: null, codeResult: r };
                 }
                 default:
                   throw new Error(`Unknown tool: ${tc.name}`);
               }
             } catch (e: any) {
               console.error(`[tool:${tc.name}] error:`, e?.message);
-              if (tc.name === "web_search") return { tc, kind: "web_search" as const, webResult: { answer: null, results: [] }, urlResult: null };
-              return { tc, kind: "url_fetch" as const, webResult: null, urlResult: { url: tc.arguments?.url || "", title: "", content: `Error fetching URL: ${e?.message}` } };
+              if (tc.name === "web_search") return { tc, kind: "web_search" as const, webResult: { answer: null, results: [] }, urlResult: null, codeResult: null };
+              if (tc.name === "code_exec") return { tc, kind: "code_exec" as const, webResult: null, urlResult: null, codeResult: { stdout: "", stderr: `Error: ${e?.message}`, exitCode: -1, durationMs: 0, timedOut: false } };
+              return { tc, kind: "url_fetch" as const, webResult: null, urlResult: { url: tc.arguments?.url || "", title: "", content: `Error fetching URL: ${e?.message}` }, codeResult: null };
             }
           })
         );
@@ -372,6 +394,8 @@ chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
             res.write(`data: ${JSON.stringify({ toolResult: { name: tr.tc.name, results: tr.webResult.results.map((r) => ({ url: r.url, title: r.title })) } })}\n\n`);
           } else if (tr.kind === "url_fetch" && tr.urlResult) {
             res.write(`data: ${JSON.stringify({ toolResult: { name: tr.tc.name, results: [{ url: tr.urlResult.url, title: tr.urlResult.title }] } })}\n\n`);
+          } else if (tr.kind === "code_exec" && tr.codeResult) {
+            res.write(`data: ${JSON.stringify({ toolResult: { name: tr.tc.name, results: [{ url: "", title: `exitCode=${tr.codeResult.exitCode} (${tr.codeResult.durationMs}ms)` }] } })}\n\n`);
           }
         }
 
@@ -386,7 +410,7 @@ chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
           }));
           if (phase1.text) assistantContent.unshift({ type: "text", text: phase1.text });
 
-          const toolResultContent: any[] = toolResults.map(({ tc, kind, webResult, urlResult }) => {
+          const toolResultContent: any[] = toolResults.map(({ tc, kind, webResult, urlResult, codeResult }) => {
             let content: any[];
             if (kind === "web_search" && webResult) {
               content = [
@@ -395,6 +419,8 @@ chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
               ];
             } else if (kind === "url_fetch" && urlResult) {
               content = [{ type: "text", text: `URL: ${urlResult.url}\nTitle: ${urlResult.title}\n\n${urlResult.content}` }];
+            } else if (kind === "code_exec" && codeResult) {
+              content = [{ type: "text", text: `exit_code: ${codeResult.exitCode}\nduration_ms: ${codeResult.durationMs}\ntimed_out: ${codeResult.timedOut}\nstdout:\n${codeResult.stdout}\nstderr:\n${codeResult.stderr}` }];
             } else {
               content = [{ type: "text", text: "No result" }];
             }
@@ -416,7 +442,7 @@ chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
               function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
             })),
           };
-          const toolMsgs: any[] = toolResults.map(({ tc, kind, webResult, urlResult }) => {
+          const toolMsgs: any[] = toolResults.map(({ tc, kind, webResult, urlResult, codeResult }) => {
             let content: string;
             if (kind === "web_search" && webResult) {
               content = [
@@ -425,6 +451,8 @@ chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
               ].filter(Boolean).join("\n\n");
             } else if (kind === "url_fetch" && urlResult) {
               content = `URL: ${urlResult.url}\nTitle: ${urlResult.title}\n\n${urlResult.content}`;
+            } else if (kind === "code_exec" && codeResult) {
+              content = `exit_code: ${codeResult.exitCode}\nduration_ms: ${codeResult.durationMs}\ntimed_out: ${codeResult.timedOut}\nstdout:\n${codeResult.stdout}\nstderr:\n${codeResult.stderr}`;
             } else {
               content = "No result";
             }
