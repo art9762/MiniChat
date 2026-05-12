@@ -310,7 +310,14 @@ chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
 
     if (useWebSearch) {
       // Phase 1: non-streaming call with tool
-      const phase1 = await callWithTools(effectiveBody, [WEB_SEARCH_TOOL]);
+      const webSearchSystem = "You have access to a web_search tool. When the user asks about anything that may require current/online information, call web_search immediately. Do not announce that you will search — just call the tool. After receiving results, answer based on them and cite sources.";
+      const phase1Body = {
+        ...effectiveBody,
+        systemPrompt: effectiveBody.systemPrompt
+          ? `${effectiveBody.systemPrompt}\n\n${webSearchSystem}`
+          : webSearchSystem,
+      };
+      const phase1 = await callWithTools(phase1Body, [WEB_SEARCH_TOOL]);
       accumulatedUsage.inputTokens += phase1.usage.inputTokens;
       accumulatedUsage.outputTokens += phase1.usage.outputTokens;
 

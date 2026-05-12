@@ -70,7 +70,7 @@ export async function callWithTools(
         messages,
         temperature: req.temperature ?? 0.7,
         tools: anthropicTools,
-        tool_choice: { type: "auto" },
+        tool_choice: { type: "any" },
       }),
     });
     if (!response.ok) {
@@ -112,7 +112,7 @@ export async function callWithTools(
         messages,
         temperature: req.temperature ?? 0.7,
         tools: openaiTools,
-        tool_choice: "auto",
+        tool_choice: "required",
       }),
     });
     if (!response.ok) {
