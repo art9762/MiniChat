@@ -32,19 +32,21 @@ export function InputBar({ onSend, isStreaming, disabled }: Props) {
     }
   };
 
+  const charCount = text.length;
+
   return (
-    <div className="p-4 pt-2">
+    <div className="p-3 pt-1.5 border-t border-[var(--border)]">
       <div className="max-w-3xl mx-auto">
-        <div className="relative flex items-end bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-2xl px-4 py-3 focus-within:border-blue-500/40 transition-colors">
+        <div className="relative flex items-end bg-[var(--bg-input)] border border-[var(--border)] rounded-lg px-3 py-2.5 focus-within:border-[var(--border-focus)] transition-colors">
           <textarea
             ref={ref}
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={handleKeyDown}
             disabled={disabled}
-            placeholder={disabled ? "Чат недоступен" : "Type a message..."}
+            placeholder={disabled ? "Чат недоступен" : "Send a message..."}
             rows={1}
-            className="flex-1 resize-none bg-transparent text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none min-h-[24px] max-h-[200px] leading-relaxed"
+            className="flex-1 resize-none bg-transparent text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none min-h-[22px] max-h-[200px] leading-relaxed"
             style={{ height: "auto", overflow: "hidden" }}
             onInput={(e) => {
               const el = e.target as HTMLTextAreaElement;
@@ -52,17 +54,29 @@ export function InputBar({ onSend, isStreaming, disabled }: Props) {
               el.style.height = Math.min(el.scrollHeight, 200) + "px";
             }}
           />
-          <button
-            onClick={handleSubmit}
-            disabled={disabled || (!text.trim() && !isStreaming)}
-            className="shrink-0 w-8 h-8 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:bg-[var(--bg-hover)] disabled:text-[var(--text-muted)] flex items-center justify-center transition-colors ml-2"
-          >
-            {isStreaming ? <Square size={12} /> : <ArrowUp size={16} />}
-          </button>
+          <div className="flex items-center gap-2 ml-2">
+            {charCount > 0 && (
+              <span className="text-[10px] tabular-nums text-[var(--text-muted)]">
+                {charCount}
+              </span>
+            )}
+            <button
+              onClick={handleSubmit}
+              disabled={disabled || (!text.trim() && !isStreaming)}
+              className="shrink-0 w-7 h-7 rounded-md bg-[var(--accent)] hover:bg-[var(--accent-hover)] disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-muted)] flex items-center justify-center transition-colors text-white"
+            >
+              {isStreaming ? <Square size={10} /> : <ArrowUp size={14} />}
+            </button>
+          </div>
         </div>
-        <p className="text-[10px] text-[var(--text-muted)] text-center mt-2">
-          MiniChat may make mistakes. Check important information.
-        </p>
+        <div className="flex items-center justify-between mt-1.5 px-1">
+          <p className="text-[10px] text-[var(--text-muted)]">
+            Shift+Enter for new line
+          </p>
+          <p className="text-[10px] text-[var(--text-muted)]">
+            MiniChat
+          </p>
+        </div>
       </div>
     </div>
   );

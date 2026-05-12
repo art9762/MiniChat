@@ -4,3 +4,6 @@ dist
 data
 *.db
 *.db-*
+.claude/
+.claude-flow/
+.mcp.json

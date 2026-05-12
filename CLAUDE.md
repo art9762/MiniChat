@@ -130,12 +130,26 @@ server/
     seed-admin.ts        — создание/промоут первого админа
 ```
 
+## UI / Дизайн
+- **3-колоночный layout** в стиле Google AI Studio: sidebar | chat | right panel
+- **Тема**: dark-black через CSS custom properties (`--bg-primary: #0a0a0a`, `--bg-sidebar: #060606`, etc.) в `index.css`
+- **Дополнительные CSS-переменные**: `--bg-input`, `--border-subtle`, `--border-focus`, `--accent`, `--accent-hover`, `--accent-subtle`
+- **Стилизация**: компактный профессиональный UI — rounded-md, мелкие шрифты (11-13px), uppercase section-лейблы с иконками
+- **Header**: показывает название чата + текущую модель в моноширинном бейдже + индикатор Streaming
+- **Sidebar**: тонкая кнопка New chat с бордером, версия в футере
+- **Правая панель**: секции MODEL / SYSTEM PROMPT / TEMPERATURE с иконками, модели сгруппированы по провайдеру, tier-иконки (Crown/Zap/Gauge), context window, пресеты temperature
+- **Сообщения**: кнопка Copy на hover, uppercase метки YOU/ASSISTANT
+- **InputBar**: счётчик символов, подсказка Shift+Enter, border-t сверху
+- **Welcome-экран**: минималистичный с иконкой Terminal
+- **Список моделей**: hardcoded в `RightPanel.tsx` (массив MODELS + MODEL_INFO с описаниями, tier и context window)
+
 ## Conventions
 - Модель определяется по префиксу: `claude*` → Anthropic, иначе → OpenAI.
 - Бэкенд унифицирует SSE: `data: {"content": "..."}` для текста, `data: {"usage": {...}}` финал, `data: [DONE]`.
 - Диалоги юзеров пока в `localStorage` (TODO: миграция в БД, чтобы админ видел чаты).
 - Цены в `pricing.ts` — править там, без миграций БД.
 - В клиенте все запросы — `credentials: "include"` (без этого cookie не идут).
+- Не коммитить: `.env`, `.mcp.json`, `.claude/`, `.claude-flow/`
 
 ## TODO / next
 - Перенести диалоги из localStorage в БД, добавить просмотр диалогов юзера в админке.

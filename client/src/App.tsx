@@ -86,6 +86,10 @@ function App() {
     );
   }
 
+  const currentModelName = model.includes("claude")
+    ? model.replace("claude-", "").replace(/-/g, " ")
+    : model;
+
   return (
     <div className="h-full flex bg-[var(--bg-primary)] text-[var(--text-primary)]">
       <Sidebar
@@ -98,17 +102,25 @@ function App() {
         onToggle={() => setSidebarOpen(!sidebarOpen)}
       />
       <main className="flex-1 flex flex-col min-w-0">
-        <header className="flex items-center gap-2 px-4 py-2.5 border-b border-[var(--border)]">
+        <header className="flex items-center gap-2 px-4 h-11 border-b border-[var(--border)] shrink-0">
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="md:hidden p-2 hover:bg-[var(--bg-hover)] rounded-lg transition-colors"
+            className="md:hidden p-1.5 hover:bg-[var(--bg-hover)] rounded-md transition-colors"
           >
-            <Menu size={18} />
+            <Menu size={16} />
           </button>
-          <h1 className="text-sm font-semibold text-[var(--text-primary)]">
+          <span className="text-xs font-medium text-[var(--text-secondary)] truncate">
             {active?.title || "MiniChat"}
-          </h1>
+          </span>
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-muted)] font-mono">
+            {currentModelName}
+          </span>
           <div className="flex-1" />
+          {isStreaming && (
+            <span className="text-[10px] text-[var(--accent)] animate-pulse font-medium">
+              Streaming...
+            </span>
+          )}
 
           <div className="flex items-center gap-1">
             <span

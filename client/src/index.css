@@ -1,16 +1,24 @@
 @import "tailwindcss";
 
 :root {
-  --bg-primary: #1a1a2e;
-  --bg-secondary: #1e1e35;
-  --bg-tertiary: #252542;
-  --bg-sidebar: #16162a;
-  --bg-hover: #2a2a4a;
-  --bg-active: #2e2e50;
-  --border: #2d2d4a;
-  --text-primary: #e4e4f0;
-  --text-secondary: #a8a8c0;
-  --text-muted: #6b6b8a;
+  --bg-primary: #0a0a0a;
+  --bg-secondary: #111111;
+  --bg-tertiary: #181818;
+  --bg-sidebar: #060606;
+  --bg-hover: #1a1a1a;
+  --bg-active: #222222;
+  --bg-input: #141414;
+  --border: #1e1e1e;
+  --border-subtle: #161616;
+  --border-focus: #333333;
+  --text-primary: #e0e0e0;
+  --text-secondary: #8a8a8a;
+  --text-muted: #555555;
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
+  --accent-subtle: rgba(59, 130, 246, 0.08);
+  --danger: #ef4444;
+  --success: #22c55e;
 }
 
 html, body, #root {
@@ -32,35 +40,62 @@ html, body, #root {
   background: var(--text-muted);
 }
 
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
 .prose pre {
-  background: var(--bg-tertiary) !important;
-  padding: 0.75rem 1rem !important;
+  background: #0d0d0d !important;
+  padding: 0.875rem 1rem !important;
   margin: 0.5rem 0 !important;
-  border-radius: 0.75rem;
+  border-radius: 0.5rem;
   border: 1px solid var(--border);
+  font-size: 0.8em;
 }
 .prose code {
-  font-size: 0.85em;
+  font-size: 0.84em;
+  color: #c9d1d9;
 }
 .prose p {
   margin: 0.5em 0;
+}
+.prose a {
+  color: var(--accent);
 }
 
 input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
-  height: 4px;
-  border-radius: 2px;
+  height: 3px;
+  border-radius: 1.5px;
   background: var(--border);
   outline: none;
 }
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
-  background: #3b82f6;
+  background: var(--accent);
   cursor: pointer;
   border: 2px solid var(--bg-primary);
+  box-shadow: 0 0 4px rgba(59, 130, 246, 0.3);
+}
+
+/* Focus ring utility */
+.focus-ring:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* Section label */
+.section-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
