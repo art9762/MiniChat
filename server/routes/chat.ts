@@ -11,6 +11,7 @@ import { calcCost, estimateInputTokens, priceOf } from "../lib/pricing.js";
 import { chatLimiter } from "../lib/rateLimit.js";
 import { retrieve, buildContextBlock } from "../lib/rag.js";
 import { getMember } from "./projects.js";
+import { updateProjectMemory } from "../lib/memory.js";
 
 export const chatRouter = Router();
 
@@ -130,6 +131,10 @@ chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
   res.setHeader("Connection", "keep-alive");
 
   let finalized = false;
+  let assistantBuffer = "";
+
+  // Capture last user message for memory hook
+  const lastUserMsg = [...body.messages].reverse().find((m) => m.role === "user")?.content ?? "";
 
   const settle = (usage: { inputTokens: number; outputTokens: number } | null) => {
     if (finalized) return;
@@ -155,15 +160,24 @@ chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
 
     if (!res.headersSent) {
       res.json({ usage: { ...actualUsage, cost: actualCost, balance } });
-      return;
+    } else {
+      res.write(`data: ${JSON.stringify({ usage: { ...actualUsage, cost: actualCost, balance } })}\n\n`);
+      res.write(`data: [DONE]\n\n`);
+      res.end();
     }
-    res.write(`data: ${JSON.stringify({ usage: { ...actualUsage, cost: actualCost, balance } })}\n\n`);
-    res.write(`data: [DONE]\n\n`);
-    res.end();
+
+    // Fire-and-forget memory update after stream completes
+    if (usage && body.projectId && assistantBuffer) {
+      updateProjectMemory(body.projectId, user.id, lastUserMsg, assistantBuffer)
+        .catch((err) => console.error("[memory] hook error:", err));
+    }
   };
 
   const cb = {
-    onContent: (chunk: string) => res.write(`data: ${JSON.stringify({ content: chunk })}\n\n`),
+    onContent: (chunk: string) => {
+      assistantBuffer += chunk;
+      res.write(`data: ${JSON.stringify({ content: chunk })}\n\n`);
+    },
     onDone: settle,
     onError: (status: number, message: string) => {
       // Log full upstream error server-side, return generic to client.
