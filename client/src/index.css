@@ -1,0 +1,29 @@
+@import "tailwindcss";
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #3f3f46;
+  border-radius: 3px;
+}
+
+.prose pre {
+  background: transparent !important;
+  padding: 0 !important;
+  margin: 0.5rem 0 !important;
+}
+.prose code {
+  font-size: 0.85em;
+}
+.prose p {
+  margin: 0.5em 0;
+}
