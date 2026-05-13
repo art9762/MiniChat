@@ -123,7 +123,8 @@ export async function* streamChat(body: {
   temperature?: number;
   systemPrompt?: string;
   chatId?: string;
-  attachmentIds?: string[];
+  attachmentIds?: (string | { id: string; resolution?: "low" | "medium" | "high" })[];
+  projectId?: string;
   webSearch?: boolean;
   urlFetch?: boolean;
   codeExec?: boolean;

@@ -121,7 +121,8 @@ function App() {
     if (!chatId) {
       chatId = create(model, activeProjectId ?? undefined);
     }
-    send(text, chatId, attachments, chatSettings);
+    const projectId = active?.project_id ?? null;
+    send(text, chatId, attachments, chatSettings, projectId);
   };
 
   const handleModelChange = (m: string) => {
@@ -324,6 +325,8 @@ function App() {
               modelName={modelName}
               chatId={activeId}
               attachmentsEnabled={chatSettings.attachmentsEnabled}
+              imageQuality={chatSettings.imageQuality ?? "medium"}
+              onImageQualityChange={(q) => handleChatSettingsChange({ ...chatSettings, imageQuality: q })}
             />
           </>
         )}

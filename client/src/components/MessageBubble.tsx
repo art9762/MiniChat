@@ -1,10 +1,10 @@
-import { Sparkles, Copy, Check, User as UserIcon, FileText, Image as ImageIcon, File, Globe, Search, Code } from "lucide-react";
+import { Sparkles, Copy, Check, User as UserIcon, FileText, Image as ImageIcon, File, Globe, Search, Code, Eye } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
-import type { Message, ChatAttachment } from "../types";
+import type { Message, ChatAttachment, ToolEvent } from "../types";
 
 interface Props {
   message: Message;
@@ -75,6 +75,40 @@ function CodeBlock({ language, value }: { language: string; value: string }) {
       >
         {value.replace(/\n$/, "")}
       </SyntaxHighlighter>
+    </div>
+  );
+}
+
+function ImageToolBlock({ ev }: { ev: ToolEvent }) {
+  const [expanded, setExpanded] = useState(false);
+  const isSearch = ev.name === "search_project_images";
+  const Icon = isSearch ? Search : Eye;
+  const label = isSearch
+    ? (ev.status === "running" ? `🔍 Ищу изображения${ev.query ? `: ${ev.query}` : ""}` : `🔍 Поиск изображений${ev.query ? `: ${ev.query}` : ""}`)
+    : (ev.status === "running" ? "🖼️ Открываю изображение…" : "🖼️ Изображение из проекта");
+  const count = ev.results?.length ?? 0;
+  return (
+    <div className="mb-2 rounded-lg border border-[var(--border-subtle)] overflow-hidden text-[12px]">
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="flex items-center gap-1.5 w-full px-3 py-1.5 bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-muted)] transition-colors"
+      >
+        <Icon size={12} className={ev.status === "running" ? "animate-pulse" : ""} />
+        <span className="truncate">{label}</span>
+        {ev.status === "done" && count > 0 && (
+          <span className="ml-auto text-[10px]">{count} · {expanded ? "▲" : "▼"}</span>
+        )}
+      </button>
+      {expanded && ev.results && ev.results.length > 0 && (
+        <ul className="px-3 py-2 bg-[var(--bg-primary)] text-[var(--text-secondary)] space-y-1">
+          {ev.results.map((r, i) => (
+            <li key={i} className="flex items-start gap-2">
+              <ImageIcon size={11} className="shrink-0 mt-0.5 text-[var(--text-muted)]" />
+              <span className="break-words">{r.title}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -217,6 +251,10 @@ export function MessageBubble({ message, isLast, isStreaming }: Props) {
         {message.codeOutput && (
           <CodeExecBlock output={message.codeOutput} />
         )}
+        {/* Project-image tool calls */}
+        {message.toolEvents && message.toolEvents
+          .filter((ev) => ev.name === "search_project_images" || ev.name === "view_project_image")
+          .map((ev) => <ImageToolBlock key={ev.key} ev={ev} />)}
         {message.sources && message.sources.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5 text-[12px] mb-2">
             <Globe size={12} className="text-[var(--accent)] shrink-0" />
