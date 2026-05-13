@@ -9,7 +9,8 @@ RUN apk add --no-cache python3 make g++ vips-dev
 COPY package.json package-lock.json ./
 COPY client/package.json ./client/
 COPY server/package.json ./server/
-RUN npm ci --include=optional
+# `npm install` (not `npm ci`) — tolerates package.json/lockfile drift after adding sharp.
+RUN npm install --include=optional --no-audit --no-fund
 
 # ---------- 2. build client + server ----------
 FROM deps AS build
@@ -28,7 +29,7 @@ RUN apk add --no-cache python3 make g++ tini vips \
 COPY package.json package-lock.json ./
 COPY server/package.json ./server/
 # Install prod deps for the server workspace only (rebuilds better-sqlite3 + sharp natively).
-RUN npm ci --omit=dev --workspace server --include-workspace-root --include=optional \
+RUN npm install --omit=dev --workspace server --include-workspace-root --include=optional --no-audit --no-fund \
  && npm cache clean --force \
  && apk del python3 make g++
 
