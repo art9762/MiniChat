@@ -1,3 +1,14 @@
+export type ImageResolution = "low" | "medium" | "high";
+
+export interface ToolEvent {
+  // unique-ish key for React; assigned on the client
+  key: string;
+  name: string; // 'search_project_images' | 'view_project_image' | ...
+  query?: string;
+  results?: { url: string; title: string }[];
+  status: "running" | "done";
+}
+
 export interface Message {
   id: string;
   role: "user" | "assistant";
@@ -7,6 +18,7 @@ export interface Message {
   searchQuery?: string;
   fetchedUrl?: string;
   codeOutput?: { stdout: string; stderr?: string };
+  toolEvents?: ToolEvent[];
 }
 
 export interface ChatAttachment {
@@ -77,6 +89,7 @@ export interface ChatSettings {
   attachmentsEnabled: boolean;
   memoryAutoUpdate: boolean;
   rag: boolean;
+  imageQuality?: ImageResolution; // default 'medium'
 }
 
 export interface User {
