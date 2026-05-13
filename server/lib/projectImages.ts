@@ -78,8 +78,9 @@ export function searchProjectImages(projectId: string, filters: ImageSearchFilte
 }
 
 /**
- * Load one image as a base64 string for vision injection.
+ * Load one image variant as a base64 string for vision injection.
  * Returns null if file is missing on disk or row doesn't exist / wrong project.
+ * Resolution is always low/medium/high (WebP), never original.
  */
 export function loadProjectImageVariant(
   projectId: string,
@@ -95,7 +96,7 @@ export function loadProjectImageVariant(
   const buf = fs.readFileSync(p);
   return {
     b64: buf.toString("base64"),
-    mimeType: resolution === "original" ? row.mime_type : "image/webp",
+    mimeType: "image/webp",
     name: row.name,
     width: row.width,
     height: row.height,
