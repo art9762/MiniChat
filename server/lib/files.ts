@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { createRequire } from "module";
+import { isImageMime } from "./images.js";
 
 const require = createRequire(import.meta.url);
 
@@ -17,6 +18,7 @@ export interface ParsedFile {
   textContent: string | null;
   mimeType: string;
   normalizedName: string;
+  isImage: boolean;
 }
 
 // ── Parse ─────────────────────────────────────────────────────────────────────
@@ -33,31 +35,33 @@ export async function parseFile(
   const normalizedName = path.basename(originalName).replace(/[^a-zA-Z0-9._\-]/g, "_");
   const ext = path.extname(originalName).toLowerCase();
 
-  // Images — store as-is, no text extraction (vision models read directly)
-  if (
-    mimeType === "image/png" ||
-    mimeType === "image/jpeg" ||
-    mimeType === "image/webp" ||
-    ext === ".png" ||
-    ext === ".jpg" ||
-    ext === ".jpeg" ||
-    ext === ".webp"
-  ) {
-    return { textContent: null, mimeType, normalizedName };
+  // Images — caller handles resizing/variants via lib/images.ts.
+  // parseFile only flags this case so the route can take the image branch.
+  if (isImageMime(mimeType, ext)) {
+    // Normalize mime if missing
+    const mt =
+      mimeType ||
+      (ext === ".png"
+        ? "image/png"
+        : ext === ".webp"
+        ? "image/webp"
+        : ext === ".gif"
+        ? "image/gif"
+        : "image/jpeg");
+    return { textContent: null, mimeType: mt, normalizedName, isImage: true };
   }
 
   // Text files (text/*, .md, .txt, code files)
   if (mimeType.startsWith("text/") || isTextExtension(ext)) {
     const textContent = buffer.toString("utf-8");
-    return { textContent, mimeType: mimeType || "text/plain", normalizedName };
+    return { textContent, mimeType: mimeType || "text/plain", normalizedName, isImage: false };
   }
 
   // PDF
   if (mimeType === "application/pdf" || ext === ".pdf") {
-    // pdf-parse is a CJS module; use createRequire for compatibility
     const pdfParse: (buf: Buffer) => Promise<{ text: string }> = require("pdf-parse");
     const data = await pdfParse(buffer);
-    return { textContent: data.text || null, mimeType: "application/pdf", normalizedName };
+    return { textContent: data.text || null, mimeType: "application/pdf", normalizedName, isImage: false };
   }
 
   // DOCX
@@ -69,8 +73,10 @@ export async function parseFile(
     const result = await mammoth.extractRawText({ buffer });
     return {
       textContent: result.value || null,
-      mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      mimeType:
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       normalizedName,
+      isImage: false,
     };
   }
 
@@ -110,4 +116,12 @@ export function deleteFile(storagePath: string): void {
   } catch (e: any) {
     if (e.code !== "ENOENT") throw e;
   }
+}
+
+export function projectFileDir(projectId: string): string {
+  return path.join(DATA_DIR, "files", projectId);
+}
+
+export function chatAttachmentDir(chatId: string): string {
+  return path.join(DATA_DIR, "files", "chat-attachments", chatId);
 }

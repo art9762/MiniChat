@@ -15,8 +15,8 @@ CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   username TEXT UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,
-  role TEXT NOT NULL DEFAULT 'user',          -- 'user' | 'admin'
-  status TEXT NOT NULL DEFAULT 'active',      -- 'active' | 'suspended' | 'banned'
+  role TEXT NOT NULL DEFAULT 'user',
+  status TEXT NOT NULL DEFAULT 'active',
   token_balance INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL
 );
@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS usage_log (
   model TEXT NOT NULL,
   input_tokens INTEGER NOT NULL DEFAULT 0,
   output_tokens INTEGER NOT NULL DEFAULT 0,
-  cost INTEGER NOT NULL DEFAULT 0,            -- spent from balance
+  cost INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
@@ -76,7 +76,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_admin ON admin_audit_log(admin_id);
 CREATE INDEX IF NOT EXISTS idx_audit_created ON admin_audit_log(created_at);
 `);
 
-// ── Projects schema ──────────────────────────────────────────────────────────
+// ── Projects schema ───────────────────────────────────────────────────
 db.exec(`
 CREATE TABLE IF NOT EXISTS chats (
   id         TEXT PRIMARY KEY,
@@ -153,12 +153,11 @@ CREATE INDEX IF NOT EXISTS idx_file_chunks_project ON file_chunks(project_id);
 
 `);
 
-// Migration: create or upgrade chat_attachments with chat_id column and nullable message_id
+// Migration: chat_attachments table
 {
   const caTableInfo = db.prepare(`PRAGMA table_info(chat_attachments)`).all() as { name: string }[];
   const hasChatId = caTableInfo.some((col) => col.name === "chat_id");
   if (caTableInfo.length === 0) {
-    // First-time creation
     db.exec(`
       CREATE TABLE chat_attachments (
         id           TEXT PRIMARY KEY,
@@ -176,7 +175,6 @@ CREATE INDEX IF NOT EXISTS idx_file_chunks_project ON file_chunks(project_id);
       CREATE INDEX IF NOT EXISTS idx_chat_attachments_message ON chat_attachments(message_id);
     `);
   } else if (!hasChatId) {
-    // Upgrade existing table without chat_id
     db.exec(`
       CREATE TABLE chat_attachments_new (
         id           TEXT PRIMARY KEY,
@@ -200,11 +198,25 @@ CREATE INDEX IF NOT EXISTS idx_file_chunks_project ON file_chunks(project_id);
     `);
   }
 
-  // Migration: add sources column to messages
-  try {
-    db.exec(`ALTER TABLE messages ADD COLUMN sources TEXT`);
-  } catch {
-    // Column already exists — idempotent
+  // Migration: sources column on messages
+  try { db.exec(`ALTER TABLE messages ADD COLUMN sources TEXT`); } catch {}
+
+  // Migration: image metadata on chat_attachments
+  for (const col of [
+    `ALTER TABLE chat_attachments ADD COLUMN width INTEGER`,
+    `ALTER TABLE chat_attachments ADD COLUMN height INTEGER`,
+    `ALTER TABLE chat_attachments ADD COLUMN has_variants INTEGER NOT NULL DEFAULT 0`,
+  ]) {
+    try { db.exec(col); } catch {}
+  }
+
+  // Migration: image metadata on project_files
+  for (const col of [
+    `ALTER TABLE project_files ADD COLUMN width INTEGER`,
+    `ALTER TABLE project_files ADD COLUMN height INTEGER`,
+    `ALTER TABLE project_files ADD COLUMN has_variants INTEGER NOT NULL DEFAULT 0`,
+  ]) {
+    try { db.exec(col); } catch {}
   }
 }
 

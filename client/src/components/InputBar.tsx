@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
-import { ArrowUp, Square, Paperclip, X, FileText, Image as ImageIcon, File } from "lucide-react";
+import { ArrowUp, Square, Paperclip, X, FileText, Image as ImageIcon, File as FileIcon, Sliders } from "lucide-react";
 import { api } from "../lib/api";
-import type { ChatAttachment } from "../types";
+import type { ChatAttachment, ImageResolution } from "../types";
 
 interface Props {
   onSend: (text: string, attachments: ChatAttachment[]) => void;
@@ -10,11 +10,67 @@ interface Props {
   modelName?: string;
   chatId: string | null;
   attachmentsEnabled?: boolean;
+  imageQuality?: ImageResolution;
+  onImageQualityChange?: (q: ImageResolution) => void;
+}
+
+const QUALITY_LABEL: Record<ImageResolution, string> = {
+  low: "Low",
+  medium: "Med",
+  high: "High",
+};
+
+const QUALITY_HINT: Record<ImageResolution, string> = {
+  low: "512px · быстро/дёшево",
+  medium: "1024px · по умолчанию",
+  high: "1568px · детально",
+};
+
+// Client-side pre-downscale: huge originals (e.g. 4K phone shots) → ≤2048px webp
+// before upload. Server then makes 3 final variants (low/medium/high).
+const CLIENT_MAX_EDGE = 2048;
+
+async function downscaleIfImage(file: File): Promise<File> {
+  if (!file.type.startsWith("image/")) return file;
+  // SVG and animated gif: pass through; webp/jpeg/png are safe to canvas-encode.
+  if (file.type === "image/svg+xml" || file.type === "image/gif") return file;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const w0 = bitmap.width;
+    const h0 = bitmap.height;
+    const maxEdge = Math.max(w0, h0);
+    if (maxEdge <= CLIENT_MAX_EDGE) {
+      bitmap.close?.();
+      return file;
+    }
+    const scale = CLIENT_MAX_EDGE / maxEdge;
+    const w = Math.round(w0 * scale);
+    const h = Math.round(h0 * scale);
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      bitmap.close?.();
+      return file;
+    }
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    bitmap.close?.();
+    const blob: Blob | null = await new Promise((resolve) =>
+      canvas.toBlob((b) => resolve(b), "image/webp", 0.9)
+    );
+    if (!blob) return file;
+    // keep original name but switch ext to .webp so it's clear what was sent
+    const baseName = file.name.replace(/\.[^./\\]+$/, "");
+    return new File([blob], `${baseName}.webp`, { type: "image/webp" });
+  } catch {
+    return file;
+  }
 }
 
 function AttachmentPill({ att, onRemove }: { att: ChatAttachment; onRemove: () => void }) {
   const isImage = att.mimeType.startsWith("image/");
-  const Icon = isImage ? ImageIcon : att.mimeType === "application/pdf" ? FileText : File;
+  const Icon = isImage ? ImageIcon : att.mimeType === "application/pdf" ? FileText : FileIcon;
   return (
     <div className="flex items-center gap-1.5 bg-[var(--bg-hover)] text-[var(--text-secondary)] text-[12px] px-2 py-1 rounded-lg max-w-[180px]">
       <Icon size={12} className="shrink-0 text-[var(--text-muted)]" />
@@ -30,16 +86,29 @@ function AttachmentPill({ att, onRemove }: { att: ChatAttachment; onRemove: () =
   );
 }
 
-export function InputBar({ onSend, isStreaming, disabled, modelName, chatId, attachmentsEnabled = true }: Props) {
+export function InputBar({ onSend, isStreaming, disabled, modelName, chatId, attachmentsEnabled = true, imageQuality = "medium", onImageQualityChange }: Props) {
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [qualityOpen, setQualityOpen] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const qualityRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!isStreaming) ref.current?.focus();
   }, [isStreaming]);
+
+  useEffect(() => {
+    if (!qualityOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!qualityRef.current?.contains(e.target as Node)) setQualityOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [qualityOpen]);
+
+  const hasImageAttachment = attachments.some((a) => a.mimeType.startsWith("image/"));
 
   const handleSubmit = () => {
     const trimmed = text.trim();
@@ -63,9 +132,8 @@ export function InputBar({ onSend, isStreaming, disabled, modelName, chatId, att
     if (!files || files.length === 0 || !chatId) return;
     setUploading(true);
     try {
-      const uploads = await Promise.all(
-        Array.from(files).map((file) => api.uploadChatAttachment(chatId, file))
-      );
+      const prepared = await Promise.all(Array.from(files).map(downscaleIfImage));
+      const uploads = await Promise.all(prepared.map((file) => api.uploadChatAttachment(chatId, file)));
       setAttachments((prev) => [...prev, ...uploads]);
     } catch (err: any) {
       alert(`Upload error: ${err.message}`);
@@ -126,6 +194,34 @@ export function InputBar({ onSend, isStreaming, disabled, modelName, chatId, att
                 <Paperclip size={16} />
               )}
             </button>
+            {hasImageAttachment && onImageQualityChange && (
+              <div ref={qualityRef} className="relative shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setQualityOpen((v) => !v)}
+                  className="h-9 px-2 rounded-full hover:bg-[var(--bg-hover)] flex items-center gap-1 text-[12px] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                  title={`Качество картинок: ${QUALITY_HINT[imageQuality]}`}
+                >
+                  <Sliders size={13} />
+                  <span>{QUALITY_LABEL[imageQuality]}</span>
+                </button>
+                {qualityOpen && (
+                  <div className="absolute bottom-full left-0 mb-2 w-44 bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-xl shadow-xl py-1 z-10">
+                    <div className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wide text-[var(--text-faint)]">Качество картинок</div>
+                    {(["low", "medium", "high"] as ImageResolution[]).map((q) => (
+                      <button
+                        key={q}
+                        onClick={() => { onImageQualityChange(q); setQualityOpen(false); }}
+                        className={`w-full text-left px-3 py-1.5 text-[12px] hover:bg-[var(--bg-hover)] flex items-center justify-between ${q === imageQuality ? "text-[var(--accent)]" : "text-[var(--text-primary)]"}`}
+                      >
+                        <span>{QUALITY_LABEL[q]}</span>
+                        <span className="text-[10px] text-[var(--text-muted)]">{QUALITY_HINT[q]}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             <textarea
               ref={ref}
               value={text}
