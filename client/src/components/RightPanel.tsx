@@ -1,5 +1,5 @@
-import { ChevronDown, ChevronUp, Cpu, Thermometer, FileText, Zap, Crown, Gauge } from "lucide-react";
-import { useState } from "react";
+import { ChevronDown, Check, SlidersHorizontal, Sparkles, X } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
 import type { Model, Settings } from "../types";
 
 const MODELS: Model[] = [
@@ -7,37 +7,25 @@ const MODELS: Model[] = [
   { id: "claude-opus-4-6", name: "Claude Opus 4.6", provider: "anthropic" },
   { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6", provider: "anthropic" },
   { id: "claude-haiku-4-5", name: "Claude Haiku 4.5", provider: "anthropic" },
-  { id: "claude-sonnet-4-6-1m", name: "Claude Sonnet 4.6 1M", provider: "anthropic" },
-  { id: "claude-opus-4-6-1m", name: "Claude Opus 4.6 1M", provider: "anthropic" },
-  { id: "claude-opus-4-7-1m", name: "Claude Opus 4.7 1M", provider: "anthropic" },
+  { id: "claude-sonnet-4-6-1m", name: "Claude Sonnet 4.6 (1M)", provider: "anthropic" },
+  { id: "claude-opus-4-6-1m", name: "Claude Opus 4.6 (1M)", provider: "anthropic" },
+  { id: "claude-opus-4-7-1m", name: "Claude Opus 4.7 (1M)", provider: "anthropic" },
   { id: "gpt-5.4", name: "GPT-5.4", provider: "openai" },
   { id: "gpt-5.2", name: "GPT-5.2", provider: "openai" },
   { id: "gpt-5-mini", name: "GPT-5 Mini", provider: "openai" },
 ];
 
-const MODEL_INFO: Record<string, { description: string; tier: string; context: string }> = {
-  "claude-opus-4-7": { description: "Most capable reasoning model", tier: "premium", context: "200K" },
-  "claude-opus-4-6": { description: "Advanced reasoning and analysis", tier: "premium", context: "200K" },
-  "claude-sonnet-4-6": { description: "Balanced performance and speed", tier: "standard", context: "200K" },
-  "claude-haiku-4-5": { description: "Fast and lightweight", tier: "fast", context: "200K" },
-  "claude-sonnet-4-6-1m": { description: "Sonnet with extended context", tier: "standard", context: "1M" },
-  "claude-opus-4-6-1m": { description: "Opus 4.6 extended context", tier: "premium", context: "1M" },
-  "claude-opus-4-7-1m": { description: "Opus 4.7 extended context", tier: "premium", context: "1M" },
-  "gpt-5.4": { description: "Latest GPT flagship model", tier: "premium", context: "128K" },
-  "gpt-5.2": { description: "Balanced GPT for everyday use", tier: "standard", context: "128K" },
-  "gpt-5-mini": { description: "Fast and cost-effective", tier: "fast", context: "128K" },
-};
-
-const TIER_ICON: Record<string, typeof Crown> = {
-  premium: Crown,
-  standard: Zap,
-  fast: Gauge,
-};
-
-const TIER_COLORS: Record<string, string> = {
-  premium: "text-amber-500",
-  standard: "text-blue-400",
-  fast: "text-emerald-400",
+const MODEL_DESC: Record<string, string> = {
+  "claude-opus-4-7": "Самая мощная модель для сложных задач",
+  "claude-opus-4-6": "Продвинутое рассуждение и анализ",
+  "claude-sonnet-4-6": "Баланс скорости и качества",
+  "claude-haiku-4-5": "Быстрая и лёгкая",
+  "claude-sonnet-4-6-1m": "Sonnet с расширенным контекстом 1M",
+  "claude-opus-4-6-1m": "Opus 4.6 с контекстом 1M",
+  "claude-opus-4-7-1m": "Opus 4.7 с контекстом 1M",
+  "gpt-5.4": "Флагман GPT нового поколения",
+  "gpt-5.2": "Сбалансированный GPT",
+  "gpt-5-mini": "Быстрый и экономичный",
 };
 
 interface Props {
@@ -45,148 +33,157 @@ interface Props {
   onModelChange: (model: string) => void;
   settings: Settings;
   onSettingsChange: (s: Settings) => void;
+  isOpen: boolean;
+  onClose: () => void;
 }
 
-export function RightPanel({ model, onModelChange, settings, onSettingsChange }: Props) {
-  const [modelListOpen, setModelListOpen] = useState(false);
+export function RightPanel({ model, onModelChange, settings, onSettingsChange, isOpen, onClose }: Props) {
+  const [modelOpen, setModelOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
   const current = MODELS.find((m) => m.id === model);
-  const info = MODEL_INFO[model];
 
-  const providers = [...new Set(MODELS.map(m => m.provider))];
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setModelOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
   return (
-    <aside className="w-64 border-l border-[var(--border)] bg-[var(--bg-secondary)] flex flex-col overflow-y-auto hidden lg:flex">
-      <div className="p-3 space-y-4">
-        {/* Model selector */}
-        <div>
-          <div className="section-label mb-1.5 flex items-center gap-1">
-            <Cpu size={10} />
-            Model
-          </div>
+    <>
+      {/* Mobile/tablet overlay */}
+      {isOpen && (
+        <div
+          className="fixed inset-0 bg-black/60 z-40 lg:hidden"
+          onClick={onClose}
+        />
+      )}
+      <aside
+        className={`fixed lg:static top-0 right-0 h-full w-[88vw] max-w-[340px] lg:w-[300px] z-50 lg:z-auto bg-[var(--bg-primary)] flex flex-col overflow-y-auto border-l border-[var(--border-subtle)] transition-transform duration-200 lg:transition-none ${
+          isOpen
+            ? "translate-x-0"
+            : "translate-x-full lg:translate-x-0 lg:hidden"
+        }`}
+      >
+      <div className="px-5 py-5">
+        <div className="flex items-center gap-2 mb-5">
+          <SlidersHorizontal size={16} className="text-[var(--text-secondary)]" />
+          <h2 className="text-[14px] font-medium text-[var(--text-primary)]">Run settings</h2>
+          <div className="flex-1" />
           <button
-            onClick={() => setModelListOpen(!modelListOpen)}
-            className="w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-md bg-[var(--bg-tertiary)] border border-[var(--border)] hover:border-[var(--border-focus)] text-xs font-medium text-[var(--text-primary)] transition-all"
+            onClick={onClose}
+            className="btn-icon lg:hidden"
+            aria-label="Закрыть"
           >
-            <span className="truncate">{current?.name || model}</span>
-            {modelListOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            <X size={18} />
           </button>
-          {modelListOpen && (
-            <div className="mt-1 rounded-md bg-[var(--bg-tertiary)] border border-[var(--border)] overflow-hidden max-h-64 overflow-y-auto">
-              {providers.map(provider => (
-                <div key={provider}>
-                  <div className="px-2.5 py-1 text-[9px] font-semibold uppercase tracking-wider text-[var(--text-muted)] bg-[var(--bg-primary)]">
-                    {provider}
-                  </div>
-                  {MODELS.filter(m => m.provider === provider).map((m) => {
-                    const mInfo = MODEL_INFO[m.id];
-                    const TierIcon = mInfo ? TIER_ICON[mInfo.tier] : Zap;
-                    return (
-                      <button
-                        key={m.id}
-                        onClick={() => {
-                          onModelChange(m.id);
-                          setModelListOpen(false);
-                        }}
-                        className={`w-full text-left px-2.5 py-1.5 text-xs transition-colors flex items-center gap-2 ${
-                          m.id === model
-                            ? "bg-[var(--accent-subtle)] text-[var(--accent)]"
-                            : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                        }`}
-                      >
-                        <TierIcon size={10} className={mInfo ? TIER_COLORS[mInfo.tier] : ""} />
-                        <span className="flex-1 truncate">{m.name}</span>
-                        {mInfo && (
-                          <span className="text-[9px] text-[var(--text-muted)] font-mono">{mInfo.context}</span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
-          )}
         </div>
 
-        {/* Model info card */}
-        {info && (
-          <div className="rounded-md bg-[var(--bg-tertiary)] border border-[var(--border)] p-2.5 space-y-1.5">
-            <div className="flex items-center gap-1.5">
-              {(() => { const TierIcon = TIER_ICON[info.tier]; return <TierIcon size={10} className={TIER_COLORS[info.tier]} />; })()}
-              <span className="text-[11px] font-semibold text-[var(--text-primary)]">{current?.name}</span>
-            </div>
-            <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">{info.description}</p>
-            <div className="flex gap-3 pt-0.5">
-              <div className="text-[10px] text-[var(--text-muted)]">
-                <span className="text-[var(--text-secondary)]">Context:</span> {info.context}
-              </div>
-              <div className="text-[10px] text-[var(--text-muted)]">
-                <span className="text-[var(--text-secondary)]">Tier:</span> {info.tier}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Divider */}
-        <div className="border-t border-[var(--border)]" />
-
-        {/* System prompt */}
-        <div>
-          <div className="section-label mb-1.5 flex items-center gap-1">
-            <FileText size={10} />
-            System prompt
-          </div>
-          <textarea
-            value={settings.systemPrompt}
-            onChange={(e) => onSettingsChange({ ...settings, systemPrompt: e.target.value })}
-            rows={4}
-            placeholder="You are a helpful assistant..."
-            className="w-full bg-[var(--bg-input)] border border-[var(--border)] rounded-md px-2.5 py-2 text-xs text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--border-focus)] resize-none transition-colors font-mono leading-relaxed"
-          />
-        </div>
-
-        {/* Temperature */}
-        <div>
-          <div className="section-label mb-1.5 flex items-center gap-1">
-            <Thermometer size={10} />
-            Temperature
-          </div>
-          <div className="bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-md p-2.5">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-[var(--text-secondary)]">{settings.temperature.toFixed(1)}</span>
-              <div className="flex gap-1">
-                {[0, 0.5, 1.0, 1.5, 2.0].map(v => (
+        {/* Model */}
+        <div className="mb-5">
+          <label className="block studio-label mb-2">Model</label>
+          <div ref={ref} className="relative">
+            <button
+              onClick={() => setModelOpen(!modelOpen)}
+              className="w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[13px] font-medium text-[var(--text-primary)] transition-colors"
+            >
+              <span className="flex items-center gap-2 truncate">
+                <Sparkles size={14} className="text-[var(--accent)] shrink-0" />
+                {current?.name || model}
+              </span>
+              <ChevronDown size={14} className={`text-[var(--text-muted)] transition-transform ${modelOpen ? "rotate-180" : ""}`} />
+            </button>
+            {modelOpen && (
+              <div className="absolute z-20 mt-1 w-full max-h-[360px] overflow-y-auto rounded-lg bg-[var(--bg-elevated)] shadow-xl border border-[var(--border)]">
+                {MODELS.map((m) => (
                   <button
-                    key={v}
-                    onClick={() => onSettingsChange({ ...settings, temperature: v })}
-                    className={`text-[9px] px-1.5 py-0.5 rounded font-mono transition-colors ${
-                      settings.temperature === v
+                    key={m.id}
+                    onClick={() => {
+                      onModelChange(m.id);
+                      setModelOpen(false);
+                    }}
+                    className={`w-full text-left px-3 py-2.5 text-[13px] flex items-start gap-2 transition-colors ${
+                      m.id === model
                         ? "bg-[var(--accent-subtle)] text-[var(--accent)]"
-                        : "text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+                        : "text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
                     }`}
                   >
-                    {v.toFixed(1)}
+                    <div className="w-4 mt-0.5 shrink-0">
+                      {m.id === model && <Check size={14} />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium truncate">{m.name}</div>
+                      <div className="text-[11px] text-[var(--text-muted)] truncate">
+                        {MODEL_DESC[m.id] || m.provider}
+                      </div>
+                    </div>
                   </button>
                 ))}
               </div>
-            </div>
+            )}
+          </div>
+          {current && MODEL_DESC[current.id] && (
+            <p className="text-[12px] text-[var(--text-muted)] mt-2 leading-relaxed">
+              {MODEL_DESC[current.id]}
+            </p>
+          )}
+        </div>
+
+        {/* Temperature */}
+        <div className="mb-5">
+          <div className="flex items-center justify-between mb-2">
+            <label className="studio-label">Temperature</label>
             <input
-              type="range"
+              type="number"
               min="0"
               max="2"
               step="0.1"
               value={settings.temperature}
-              onChange={(e) =>
-                onSettingsChange({ ...settings, temperature: parseFloat(e.target.value) })
-              }
-              className="w-full"
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                if (!isNaN(v)) onSettingsChange({ ...settings, temperature: Math.min(2, Math.max(0, v)) });
+              }}
+              className="w-16 text-center bg-[var(--bg-tertiary)] border border-transparent focus:border-[var(--accent)] rounded-md px-2 py-1 text-[13px] text-[var(--text-primary)] outline-none transition-colors"
             />
-            <div className="flex justify-between text-[9px] text-[var(--text-muted)] mt-1">
-              <span>Deterministic</span>
-              <span>Creative</span>
-            </div>
           </div>
+          <input
+            type="range"
+            min="0"
+            max="2"
+            step="0.1"
+            value={settings.temperature}
+            onChange={(e) =>
+              onSettingsChange({ ...settings, temperature: parseFloat(e.target.value) })
+            }
+            className="w-full"
+          />
+          <div className="flex justify-between text-[11px] text-[var(--text-faint)] mt-1">
+            <span>Точно</span>
+            <span>Креативно</span>
+          </div>
+        </div>
+
+        {/* System instructions */}
+        <div className="mb-5">
+          <label className="block studio-label mb-2">System instructions</label>
+          <textarea
+            value={settings.systemPrompt}
+            onChange={(e) => onSettingsChange({ ...settings, systemPrompt: e.target.value })}
+            rows={5}
+            placeholder="Optional tone and style instructions for the model"
+            className="studio-input resize-none leading-relaxed"
+          />
+        </div>
+
+        {/* Footer note */}
+        <div className="pt-3 mt-2 border-t border-[var(--border-subtle)]">
+          <p className="text-[11px] text-[var(--text-faint)] leading-relaxed">
+            Настройки применяются к новым сообщениям. История чата сохраняется локально.
+          </p>
         </div>
       </div>
     </aside>
+    </>
   );
 }

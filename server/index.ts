@@ -6,6 +6,7 @@ import dotenv from "dotenv";
 import path from "path";
 import fs from "fs";
 import { chatRouter } from "./routes/chat.js";
+import { attachmentsRouter } from "./routes/attachments.js";
 import { authRouter } from "./routes/auth.js";
 import { adminRouter } from "./routes/admin.js";
 import { workspaceRouter } from "./routes/workspace.js";
@@ -13,6 +14,7 @@ import { agentRouter, attachAgentWss } from "./routes/agent.js";
 import { agentProxyRouter } from "./routes/agent-proxy.js";
 import { filesRouter } from "./routes/files.js";
 import { githubRouter } from "./routes/github.js";
+import { projectsRouter } from "./routes/projects.js";
 import { attachUser } from "./lib/auth.js";
 import { assertEnv, isProd } from "./lib/env.js";
 import { db } from "./lib/db.js";
@@ -73,7 +75,9 @@ app.use("/api/workspace", workspaceRouter);
 app.use("/api/agent", agentRouter);
 app.use("/api/files", filesRouter);
 app.use("/api/github", githubRouter);
+app.use("/api/projects", projectsRouter);
 app.use("/api", chatRouter);
+app.use("/api/chats/:chatId/attachments", attachmentsRouter);
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 

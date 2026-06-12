@@ -38,15 +38,20 @@ authRouter.post("/register", registerLimiter, (req, res) => {
   let user;
   try {
     const tx = db.transaction(() => {
+      // Check + create + atomically claim. UPDATE ... WHERE used_by IS NULL guarantees
+      // single-winner across concurrent transactions (SQLite serializes writes).
+      const row = db
+        .prepare(`SELECT used_by FROM invite_codes WHERE code = ?`)
+        .get(inviteCode) as any;
+      if (!row || row.used_by !== null) throw new Error("invalid_or_used_invite");
+      const u = createUser({ username, password });
       const claim = db
         .prepare(
           `UPDATE invite_codes SET used_by = ?, used_at = ?
            WHERE code = ? AND used_by IS NULL`
         )
-        .run("__pending__", Date.now(), inviteCode);
+        .run(u.id, Date.now(), inviteCode);
       if (claim.changes === 0) throw new Error("invalid_or_used_invite");
-      const u = createUser({ username, password });
-      db.prepare(`UPDATE invite_codes SET used_by = ? WHERE code = ?`).run(u.id, inviteCode);
       return u;
     });
     user = tx();

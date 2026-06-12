@@ -1,6 +1,8 @@
 import { Router } from "express";
 import {
   ChatRequest,
+  ChatMessage,
+  ContentBlock,
   isAnthropicModel,
   streamOpenAI,
   streamAnthropic,
@@ -9,6 +11,10 @@ import { requireAuth } from "../lib/auth.js";
 import { db } from "../lib/db.js";
 import { calcCost, estimateInputTokens, priceOf } from "../lib/pricing.js";
 import { chatLimiter } from "../lib/rateLimit.js";
+import { retrieve, buildContextBlock } from "../lib/rag.js";
+import { getMember } from "./projects.js";
+import { updateProjectMemory } from "../lib/memory.js";
+import fs from "fs";
 
 export const chatRouter = Router();
 
@@ -35,7 +41,7 @@ chatRouter.get("/models", requireAuth, (_req, res) => {
 });
 
 chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
-  const body: ChatRequest = req.body;
+  const body: ChatRequest & { projectId?: string; chatId?: string; attachmentIds?: string[] } = req.body;
 
   // --- Validation ---------------------------------------------------------
   if (!body || !Array.isArray(body.messages) || !body.model) {
@@ -49,12 +55,53 @@ chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
   }
   let totalChars = 0;
   for (const m of body.messages) {
-    if (!m || typeof m.content !== "string" || !["user", "assistant", "system"].includes(m.role)) {
+    if (!m || (typeof m.content !== "string" && !Array.isArray(m.content)) || !['user','assistant','system'].includes(m.role)) {
       return res.status(400).json({ error: "invalid message shape" });
     }
-    totalChars += m.content.length;
+    totalChars += typeof m.content === "string" ? m.content.length : JSON.stringify(m.content).length;
   }
   if (typeof body.systemPrompt === "string") totalChars += body.systemPrompt.length;
+
+  // --- Project RAG context -----------------------------------------------
+  let projectSystemPrompt: string | undefined;
+  if (body.projectId) {
+    const user = req.user!;
+    // Verify membership
+    const membership = getMember(body.projectId, user.id);
+    if (!membership) {
+      return res.status(403).json({ error: "not a member of this project" });
+    }
+
+    const project = db.prepare(`SELECT master_prompt, memory FROM projects WHERE id = ?`).get(body.projectId) as
+      | { master_prompt: string | null; memory: string | null }
+      | undefined;
+
+    if (project) {
+      // Get the last user message as query for retrieval
+      const lastUserMsg = [...body.messages].reverse().find((m) => m.role === "user");
+      const query = typeof lastUserMsg?.content === "string" ? lastUserMsg.content : "";
+
+      let contextBlock = "";
+      if (query) {
+        try {
+          const chunks = await retrieve(body.projectId, query, 5);
+          contextBlock = buildContextBlock(chunks);
+        } catch (err: any) {
+          console.error("[chat] RAG retrieve error:", err?.message);
+        }
+      }
+
+      const parts: string[] = [];
+      if (project.master_prompt) parts.push(project.master_prompt);
+      if (project.memory) parts.push(`[Project memory]\n${project.memory}`);
+      if (contextBlock) parts.push(`[Retrieved context]\n${contextBlock}`);
+
+      if (parts.length > 0) {
+        projectSystemPrompt = parts.join("\n\n");
+        totalChars += projectSystemPrompt.length;
+      }
+    }
+  }
   if (totalChars > MAX_TOTAL_CHARS) {
     return res.status(413).json({ error: `payload too large (>${MAX_TOTAL_CHARS} chars)` });
   }
@@ -64,10 +111,86 @@ chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
     return res.status(402).json({ error: "insufficient balance" });
   }
 
+  // --- Attachment injection -----------------------------------------------
+  // Build multimodal content for the last user message if attachmentIds are provided.
+  let messagesWithAttachments = [...body.messages];
+  if (Array.isArray(body.attachmentIds) && body.attachmentIds.length > 0 && body.chatId) {
+    // Validate attachments belong to this chat and were uploaded by the current user
+    const placeholders = body.attachmentIds.map(() => "?").join(",");
+    const rows = db
+      .prepare(`SELECT id, name, mime_type, size_bytes, storage_path, text_content, uploaded_by, chat_id
+                FROM chat_attachments WHERE id IN (${placeholders}) AND chat_id = ? AND uploaded_by = ?`)
+      .all(...body.attachmentIds, body.chatId, user.id) as any[];
+
+    if (rows.length !== body.attachmentIds.length) {
+      return res.status(400).json({ error: "some attachments not found or wrong chat" });
+    }
+
+    // Build content blocks
+    const textParts: string[] = [];
+    const imageBlocks: ContentBlock[] = [];
+
+    for (const row of rows) {
+      if (row.mime_type.startsWith("image/")) {
+        // Vision block
+        const buf = fs.readFileSync(row.storage_path);
+        const b64 = buf.toString("base64");
+        imageBlocks.push({ type: "_image", mime_type: row.mime_type, b64, name: row.name });
+      } else if (row.text_content) {
+        const truncated = row.text_content.length > 50000 ? row.text_content.slice(0, 50000) + "\n[...truncated]" : row.text_content;
+        textParts.push(`[Attached: ${row.name}]\n${truncated}`);
+      }
+    }
+
+    // Find last user message index
+    const lastUserIdx = messagesWithAttachments.map((m) => m.role).lastIndexOf("user");
+    if (lastUserIdx >= 0 && (textParts.length > 0 || imageBlocks.length > 0)) {
+      const lastMsg = messagesWithAttachments[lastUserIdx];
+      const baseText = (textParts.length > 0 ? textParts.join("\n\n") + "\n\n" : "") + (typeof lastMsg.content === "string" ? lastMsg.content : "");
+
+      if (isAnthropicModel(body.model)) {
+        // Anthropic multimodal format
+        const contentBlocks: ContentBlock[] = [];
+        for (const img of imageBlocks) {
+          const { b64, mime_type } = img as any;
+          contentBlocks.push({
+            type: "image",
+            source: { type: "base64", media_type: mime_type, data: b64 },
+          });
+        }
+        contentBlocks.push({ type: "text", text: baseText });
+        messagesWithAttachments = [
+          ...messagesWithAttachments.slice(0, lastUserIdx),
+          { ...lastMsg, content: contentBlocks } as any,
+          ...messagesWithAttachments.slice(lastUserIdx + 1),
+        ];
+      } else {
+        // OpenAI multimodal format
+        const contentBlocks: ContentBlock[] = [
+          { type: "text", text: baseText },
+        ];
+        for (const img of imageBlocks) {
+          const { b64, mime_type } = img as any;
+          contentBlocks.push({
+            type: "image_url",
+            image_url: { url: `data:${mime_type};base64,${b64}` },
+          });
+        }
+        messagesWithAttachments = [
+          ...messagesWithAttachments.slice(0, lastUserIdx),
+          { ...lastMsg, content: contentBlocks } as any,
+          ...messagesWithAttachments.slice(lastUserIdx + 1),
+        ];
+      }
+    }
+  }
+
   // --- Balance hold (prevents free-Opus race) ------------------------------
   // Estimate maximum possible cost: actual input tokens + max_output_tokens at this model's price.
   // Atomically reserve from the balance; refund the difference after the stream.
-  const approxInput = body.messages.reduce((s, m) => s + estimateInputTokens(m.content), 0);
+  const approxInput = messagesWithAttachments.reduce((s, m) => s + estimateInputTokens(typeof m.content === "string" ? m.content : JSON.stringify(m.content)), 0)
+    + (projectSystemPrompt ? estimateInputTokens(projectSystemPrompt) : 0)
+    + (body.systemPrompt ? estimateInputTokens(body.systemPrompt) : 0);
   const hold = Math.max(1, calcCost(body.model, approxInput, MAX_OUTPUT_TOKENS));
 
   const holdRes = db
@@ -85,6 +208,11 @@ chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
   res.setHeader("Connection", "keep-alive");
 
   let finalized = false;
+  let assistantBuffer = "";
+
+  // Capture last user message for memory hook
+  const lastUserMsg = [...body.messages].reverse().find((m) => m.role === "user")?.content;
+  const lastUserMsgText = typeof lastUserMsg === "string" ? lastUserMsg : "";
 
   const settle = (usage: { inputTokens: number; outputTokens: number } | null) => {
     if (finalized) return;
@@ -110,15 +238,24 @@ chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
 
     if (!res.headersSent) {
       res.json({ usage: { ...actualUsage, cost: actualCost, balance } });
-      return;
+    } else {
+      res.write(`data: ${JSON.stringify({ usage: { ...actualUsage, cost: actualCost, balance } })}\n\n`);
+      res.write(`data: [DONE]\n\n`);
+      res.end();
     }
-    res.write(`data: ${JSON.stringify({ usage: { ...actualUsage, cost: actualCost, balance } })}\n\n`);
-    res.write(`data: [DONE]\n\n`);
-    res.end();
+
+    // Fire-and-forget memory update after stream completes
+    if (usage && body.projectId && assistantBuffer) {
+      updateProjectMemory(body.projectId, user.id, lastUserMsgText, assistantBuffer)
+        .catch((err) => console.error("[memory] hook error:", err));
+    }
   };
 
   const cb = {
-    onContent: (chunk: string) => res.write(`data: ${JSON.stringify({ content: chunk })}\n\n`),
+    onContent: (chunk: string) => {
+      assistantBuffer += chunk;
+      res.write(`data: ${JSON.stringify({ content: chunk })}\n\n`);
+    },
     onDone: settle,
     onError: (status: number, message: string) => {
       // Log full upstream error server-side, return generic to client.
@@ -150,10 +287,13 @@ chatRouter.post("/chat", chatLimiter, requireAuth, async (req, res) => {
   });
 
   try {
+    const effectiveBody = projectSystemPrompt
+      ? { ...body, messages: messagesWithAttachments, systemPrompt: projectSystemPrompt }
+      : { ...body, messages: messagesWithAttachments };
     if (isAnthropicModel(body.model)) {
-      await streamAnthropic(body, cb);
+      await streamAnthropic(effectiveBody, cb);
     } else {
-      await streamOpenAI(body, cb);
+      await streamOpenAI(effectiveBody, cb);
     }
   } catch (err: any) {
     cb.onError(500, err?.message || "internal error");

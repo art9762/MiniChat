@@ -1,0 +1,51 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to deploy (sha/branch/tag)"
+        required: false
+        default: "main"
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          echo "82.26.152.98 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICueOXYchHSadv9xinJ/sFS5Nct3JLniMuj6O+tz0Cm3" > ~/.ssh/known_hosts
+
+      - name: Deploy
+        env:
+          REF: ${{ github.event.inputs.ref || github.sha }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} bash -se <<EOF
+          set -euo pipefail
+          cd ${{ secrets.DEPLOY_PATH }}
+          git fetch --prune origin
+          git checkout -f $REF
+          git reset --hard $REF
+          docker compose up -d --build
+          EOF
+
+      - name: Healthcheck
+        run: |
+          for i in {1..30}; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" https://82-26-152-98.sslip.io/api/health || true)
+            echo "try $i: $code"
+            [ "$code" = "200" ] && exit 0
+            sleep 2
+          done
+          echo "Healthcheck failed"
+          exit 1
