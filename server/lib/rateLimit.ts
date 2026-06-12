@@ -34,3 +34,21 @@ export const chatLimiter = rateLimit({
   keyGenerator: (req: any) => req.user?.id || req.ip,
   message: { error: "rate limit: 30 chat requests/minute" },
 });
+
+// Agent CLI inside a container can loop — cap proxy calls per workspace token / IP.
+export const agentProxyLimiter = rateLimit({
+  ...common,
+  windowMs: 60_000,
+  limit: 120,
+  keyGenerator: (req: any) => req.header("x-api-key") || req.ip,
+  message: { error: "rate limit: agent proxy 120 req/minute" },
+});
+
+// File operations on the workspace (listing, content, mutations).
+export const filesLimiter = rateLimit({
+  ...common,
+  windowMs: 60_000,
+  limit: 120,
+  keyGenerator: (req: any) => req.user?.id || req.ip,
+  message: { error: "rate limit: 120 file ops/minute" },
+});

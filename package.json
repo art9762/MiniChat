@@ -1,6 +1,7 @@
 {
   "name": "minichat",
   "private": true,
+  "version": "1.0.0",
   "workspaces": ["client", "server"],
   "scripts": {
     "dev": "concurrently \"npm run dev -w server\" \"npm run dev -w client\"",
