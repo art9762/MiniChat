@@ -8,10 +8,16 @@ import fs from "fs";
 import { chatRouter } from "./routes/chat.js";
 import { authRouter } from "./routes/auth.js";
 import { adminRouter } from "./routes/admin.js";
+import { workspaceRouter } from "./routes/workspace.js";
+import { agentRouter, attachAgentWss } from "./routes/agent.js";
+import { agentProxyRouter } from "./routes/agent-proxy.js";
+import { filesRouter } from "./routes/files.js";
+import { githubRouter } from "./routes/github.js";
 import { attachUser } from "./lib/auth.js";
 import { assertEnv, isProd } from "./lib/env.js";
 import { db } from "./lib/db.js";
 import { csrfGuard } from "./lib/csrf.js";
+import { startIdleReaper } from "./lib/docker.js";
 
 dotenv.config();
 assertEnv();
@@ -48,6 +54,14 @@ app.use(
   })
 );
 
+// ── Agent billing proxy ──────────────────────────────────────────────────────
+// MUST be mounted BEFORE the global json parser: the Claude Code CLI sends large
+// Messages-API payloads (>256kb), and the proxy has its own express.json(20mb).
+// Auth is via x-api-key (workspace token), NOT cookies — so it is also exempt
+// from cookie/CSRF middleware below. Container calls cannot carry the
+// X-Requested-With CSRF header; the bcrypt-hashed workspace token is the guard.
+app.use("/api/agent-proxy", agentProxyRouter);
+
 app.use(express.json({ limit: "256kb" }));
 app.use(cookieParser());
 app.use(attachUser);
@@ -55,6 +69,10 @@ app.use(csrfGuard);
 
 app.use("/api/auth", authRouter);
 app.use("/api/admin", adminRouter);
+app.use("/api/workspace", workspaceRouter);
+app.use("/api/agent", agentRouter);
+app.use("/api/files", filesRouter);
+app.use("/api/github", githubRouter);
 app.use("/api", chatRouter);
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
@@ -81,6 +99,16 @@ setInterval(() => {
   }
 }, 60 * 60_000).unref();
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
+
+// Attach the agent WebSocket server (/api/agent/ws) to the same HTTP server.
+attachAgentWss(server);
+
+// Stop idle workspace containers (no-op when docker is unavailable).
+try {
+  startIdleReaper();
+} catch (e) {
+  console.warn("[idle-reaper] not started:", (e as Error).message);
+}
