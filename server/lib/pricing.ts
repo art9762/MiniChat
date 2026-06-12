@@ -21,8 +21,21 @@ const PRICING: Record<string, Pricing> = {
 
 const DEFAULT: Pricing = { input: 5, output: 20 };
 
+// The Claude Code CLI sends full Anthropic model IDs (e.g. "claude-sonnet-4-6-20250..."
+// or "claude-3-5-haiku-...") that won't match the table exactly. Map by family so
+// the agent billing proxy can still price unknown/dated IDs correctly.
+function prefixPrice(model: string): Pricing | null {
+  const m = model.toLowerCase();
+  if (!m.startsWith("claude")) return null;
+  const is1m = m.includes("1m") || m.includes("[1m]");
+  if (m.includes("opus")) return is1m ? { input: 30, output: 150 } : { input: 15, output: 75 };
+  if (m.includes("sonnet")) return is1m ? { input: 6, output: 30 } : { input: 3, output: 15 };
+  if (m.includes("haiku")) return { input: 1, output: 5 };
+  return null;
+}
+
 export function priceOf(model: string): Pricing {
-  return PRICING[model] ?? DEFAULT;
+  return PRICING[model] ?? prefixPrice(model) ?? DEFAULT;
 }
 
 // Cost in balance units for a request given token counts.

@@ -51,3 +51,30 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Per-user agent workspace image (ADR-001). Built from
+      # deploy/workspace-image (node:22-bookworm + git/gh/ripgrep + Claude Code
+      # CLI). The MiniChat server pulls it by tag (WORKSPACE_IMAGE) to launch
+      # per-user containers. Published alongside the app image.
+      - name: Workspace image metadata
+        id: meta-ws
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}-workspace
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build & push workspace image
+        uses: docker/build-push-action@v6
+        with:
+          context: deploy/workspace-image
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.meta-ws.outputs.tags }}
+          labels: ${{ steps.meta-ws.outputs.labels }}
+          cache-from: type=gha,scope=workspace
+          cache-to: type=gha,mode=max,scope=workspace

@@ -50,7 +50,7 @@ export function AuthScreen() {
               value={inviteCode}
               onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
               placeholder="INV-XXXX-XXXX"
-              className="w-full bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500/50"
+              className="w-full bg-[var(--bg-input)] border border-[var(--border)] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[var(--border-focus)]"
             />
           )}
           {(mode === "login" || step === "creds") && (
@@ -60,14 +60,14 @@ export function AuthScreen() {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="Имя пользователя"
-                className="w-full bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500/50"
+                className="w-full bg-[var(--bg-input)] border border-[var(--border)] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[var(--border-focus)]"
               />
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Пароль"
-                className="w-full bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500/50"
+                className="w-full bg-[var(--bg-input)] border border-[var(--border)] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[var(--border-focus)]"
               />
             </>
           )}
@@ -77,7 +77,7 @@ export function AuthScreen() {
           <button
             type="submit"
             disabled={busy}
-            className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-xl px-4 py-3 text-sm font-medium transition-colors"
+            className="w-full bg-[var(--accent)] hover:bg-[var(--accent-hover)] disabled:opacity-50 text-white rounded-xl px-4 py-3 text-sm font-medium transition-colors"
           >
             {busy
               ? "..."
@@ -99,7 +99,7 @@ export function AuthScreen() {
                   setStep("invite");
                   setError(null);
                 }}
-                className="text-blue-400 hover:underline"
+                className="text-[var(--accent)] hover:underline"
               >
                 Регистрация
               </button>
@@ -112,7 +112,7 @@ export function AuthScreen() {
                   setMode("login");
                   setError(null);
                 }}
-                className="text-blue-400 hover:underline"
+                className="text-[var(--accent)] hover:underline"
               >
                 Войти
               </button>

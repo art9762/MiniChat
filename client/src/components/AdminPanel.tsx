@@ -112,7 +112,7 @@ export function AdminPanel({ onClose }: Props) {
               onClick={() => setTab(t)}
               className={`px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap ${
                 tab === t
-                  ? "text-blue-400 border-b-2 border-blue-400"
+                  ? "text-[var(--accent)] border-b-2 border-[var(--accent)]"
                   : "text-[var(--text-muted)] hover:text-[var(--text-primary)]"
               }`}
             >
@@ -198,7 +198,7 @@ export function AdminPanel({ onClose }: Props) {
             <div className="space-y-3">
               <button
                 onClick={createInvite}
-                className="bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg px-3 py-2"
+                className="bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm rounded-lg px-3 py-2"
               >
                 + Создать инвайт
               </button>
@@ -208,7 +208,7 @@ export function AdminPanel({ onClose }: Props) {
                     key={i.code}
                     className="rounded-lg bg-[var(--bg-tertiary)] p-2.5 flex items-center gap-3 text-sm"
                   >
-                    <code className="font-mono text-blue-400">{i.code}</code>
+                    <code className="font-mono text-[var(--accent)]">{i.code}</code>
                     <button
                       onClick={() => copy(i.code)}
                       className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]"
@@ -251,7 +251,7 @@ export function AdminPanel({ onClose }: Props) {
                 />
                 <button
                   onClick={createTokenCode}
-                  className="bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg px-3 py-2"
+                  className="bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm rounded-lg px-3 py-2"
                 >
                   + Создать код на {tokenAmount} токенов
                 </button>

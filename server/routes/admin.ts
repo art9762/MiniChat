@@ -2,6 +2,11 @@ import { Router } from "express";
 import { randomInt } from "crypto";
 import { db } from "../lib/db.js";
 import { requireAdmin } from "../lib/auth.js";
+import {
+  stopWorkspace,
+  removeWorkspace,
+  DockerUnavailableError,
+} from "../lib/docker.js";
 
 export const adminRouter = Router();
 
@@ -174,6 +179,132 @@ adminRouter.get("/audit", (_req, res) => {
     )
     .all();
   res.json({ entries });
+});
+
+// ── WORKSPACES ──────────────────────────────────────────────────────────────
+// Read straight from the workspaces table (left-joined with users). We never
+// require docker here — the table reflects the last-known state, so the list
+// renders even when the docker daemon is down.
+adminRouter.get("/workspaces", (_req, res) => {
+  const workspaces = db
+    .prepare(
+      `SELECT w.user_id, u.username, w.status, w.disk_used_bytes, w.disk_quota_bytes,
+              w.last_activity_at, w.container_id
+       FROM workspaces w
+       LEFT JOIN users u ON u.id = w.user_id
+       ORDER BY w.last_activity_at DESC NULLS LAST, w.created_at DESC`
+    )
+    .all();
+  res.json({ workspaces });
+});
+
+// PATCH /workspaces/:userId { quotaBytes? | quotaGB? } — set the disk quota.
+// NULL (either field passed as null) means unlimited. quotaGB is converted to
+// bytes (GiB * 1024^3). Creates the workspace row on demand so a quota can be
+// pre-set before the user ever starts a container.
+adminRouter.patch("/workspaces/:userId", (req, res) => {
+  const { userId } = req.params;
+  const user = db.prepare(`SELECT id FROM users WHERE id = ?`).get(userId) as any;
+  if (!user) return res.status(404).json({ error: "user not found" });
+
+  const { quotaBytes, quotaGB } = req.body ?? {};
+  let quota: number | null;
+  if (quotaBytes === null || quotaGB === null) {
+    quota = null; // unlimited
+  } else if (typeof quotaBytes === "number" && isFinite(quotaBytes) && quotaBytes >= 0) {
+    quota = Math.floor(quotaBytes);
+  } else if (typeof quotaGB === "number" && isFinite(quotaGB) && quotaGB >= 0) {
+    quota = Math.floor(quotaGB * 1024 * 1024 * 1024);
+  } else {
+    return res.status(400).json({ error: "provide quotaBytes or quotaGB (number, or null for unlimited)" });
+  }
+
+  // Ensure a row exists, then set the quota.
+  const exists = db.prepare(`SELECT user_id FROM workspaces WHERE user_id = ?`).get(userId);
+  if (exists) {
+    db.prepare(`UPDATE workspaces SET disk_quota_bytes = ? WHERE user_id = ?`).run(quota, userId);
+  } else {
+    db.prepare(
+      `INSERT INTO workspaces (user_id, volume_name, status, disk_used_bytes, disk_quota_bytes, created_at)
+       VALUES (?, ?, 'none', 0, ?, ?)`
+    ).run(userId, `mc-ws-${userId}`, quota, Date.now());
+  }
+  audit(req.user!.id, "workspace.quota", userId, { quota });
+  const updated = db
+    .prepare(`SELECT user_id, status, disk_used_bytes, disk_quota_bytes FROM workspaces WHERE user_id = ?`)
+    .get(userId);
+  res.json({ workspace: updated });
+});
+
+// POST /workspaces/:userId/stop — stop the user's container (files persist).
+adminRouter.post("/workspaces/:userId/stop", async (req, res) => {
+  const { userId } = req.params;
+  const user = db.prepare(`SELECT id FROM users WHERE id = ?`).get(userId) as any;
+  if (!user) return res.status(404).json({ error: "user not found" });
+  try {
+    await stopWorkspace(userId);
+    audit(req.user!.id, "workspace.stop", userId, null);
+    res.json({ ok: true });
+  } catch (e) {
+    if (e instanceof DockerUnavailableError) {
+      return res.status(503).json({ error: "docker unavailable" });
+    }
+    console.error("[admin] workspace stop failed:", e);
+    res.status(500).json({ error: "failed to stop workspace" });
+  }
+});
+
+// POST /workspaces/:userId/delete { wipeVolume? } — remove the container and,
+// when wipeVolume is true, the persistent volume (destroys the user's files).
+adminRouter.post("/workspaces/:userId/delete", async (req, res) => {
+  const { userId } = req.params;
+  const user = db.prepare(`SELECT id FROM users WHERE id = ?`).get(userId) as any;
+  if (!user) return res.status(404).json({ error: "user not found" });
+  const wipeVolume = req.body?.wipeVolume === true;
+  try {
+    await removeWorkspace(userId, { wipeVolume });
+    audit(req.user!.id, "workspace.delete", userId, { wipeVolume });
+    res.json({ ok: true });
+  } catch (e) {
+    if (e instanceof DockerUnavailableError) {
+      return res.status(503).json({ error: "docker unavailable" });
+    }
+    console.error("[admin] workspace delete failed:", e);
+    res.status(500).json({ error: "failed to delete workspace" });
+  }
+});
+
+// ── AGENT RUNS ──────────────────────────────────────────────────────────────
+// Per-user agent activity. NOTE: usage_log does not distinguish agent (CLI via
+// agent-proxy) vs plain chat traffic — both write the same rows. We therefore
+// APPROXIMATE: `sessions` is the exact count of agent_sessions per user, while
+// `runs`/`tokens`/`cost` are that user's TOTAL usage_log aggregates (chat +
+// agent). Only users who have at least one agent session are returned. If the
+// agent and chat paths ever need to be separated, tag usage_log rows by source.
+adminRouter.get("/agent-runs", (_req, res) => {
+  const runs = db
+    .prepare(
+      `SELECT s.user_id,
+              u.username,
+              COUNT(DISTINCT s.id) AS sessions,
+              COALESCE(ul.runs, 0)   AS runs,
+              COALESCE(ul.tokens, 0) AS tokens,
+              COALESCE(ul.cost, 0)   AS cost
+       FROM agent_sessions s
+       LEFT JOIN users u ON u.id = s.user_id
+       LEFT JOIN (
+         SELECT user_id,
+                COUNT(*) AS runs,
+                SUM(input_tokens + output_tokens) AS tokens,
+                SUM(cost) AS cost
+         FROM usage_log
+         GROUP BY user_id
+       ) ul ON ul.user_id = s.user_id
+       GROUP BY s.user_id
+       ORDER BY cost DESC`
+    )
+    .all();
+  res.json({ runs });
 });
 
 // STATS

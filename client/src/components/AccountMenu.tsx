@@ -70,7 +70,7 @@ export function AccountMenu({ onClose }: Props) {
             />
             <button
               onClick={redeem}
-              className="bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg px-3"
+              className="bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm rounded-lg px-3"
             >
               OK
             </button>

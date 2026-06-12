@@ -1,22 +1,29 @@
-import { useState, useCallback } from "react";
-import { Menu, PanelRightClose, PanelRightOpen, Shield, User as UserIcon, Zap } from "lucide-react";
-import { Sidebar } from "./components/Sidebar";
+import { useState, useCallback, useEffect } from "react";
+import { Menu, PanelRightClose, PanelRightOpen, Shield, User as UserIcon, Zap, Settings as SettingsIcon, Folder } from "lucide-react";
+import { Sidebar, type ChatMode } from "./components/Sidebar";
 import { ChatWindow } from "./components/ChatWindow";
 import { InputBar } from "./components/InputBar";
 import { RightPanel } from "./components/RightPanel";
 import { AdminPanel } from "./components/AdminPanel";
 import { AccountMenu } from "./components/AccountMenu";
+import { SettingsModal } from "./components/SettingsModal";
+import { WorkspaceChip } from "./components/WorkspaceChip";
+import { FilesPanel } from "./components/files/FilesPanel";
+import { AgentView } from "./components/agent/AgentView";
 import { ProjectView } from "./components/ProjectView";
 import { NewProjectModal } from "./components/NewProjectModal";
 import { JoinProjectPage } from "./components/JoinProjectPage";
 import { useConversations } from "./hooks/useConversations";
 import { useChat } from "./hooks/useChat";
+import { useAgentSessions } from "./hooks/useAgentSessions";
+import { useAgent } from "./hooks/useAgent";
 import { useAuth } from "./auth/AuthProvider";
 import { AuthScreen } from "./auth/AuthScreen";
 import { useProjects } from "./hooks/useProjects";
-import type { Settings, Message, Project } from "./types";
+import type { Settings, Message, Project, ChatAttachment } from "./types";
 
 const DEFAULT_MODEL = "claude-sonnet-4-6";
+const DEFAULT_AGENT_MODEL = "claude-sonnet-4-6";
 
 const MODEL_NAMES: Record<string, string> = {
   "claude-opus-4-7": "Claude Opus 4.7",
@@ -43,15 +50,23 @@ function App() {
     useConversations();
   const { projects, create: createProject, refresh: refreshProjects } = useProjects();
 
+  const [mode, setMode] = useState<ChatMode>("chat");
+
+  const agentSessions = useAgentSessions(mode === "agent");
+  const agent = useAgent({ sessionId: mode === "agent" ? agentSessions.activeId : null, onBalance: setBalance });
+
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [rightPanelOpen, setRightPanelOpen] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     return window.matchMedia("(min-width: 1024px)").matches;
   });
+  const [filesOpen, setFilesOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [pendingAgentPrompt, setPendingAgentPrompt] = useState<string | null>(null);
 
   // Join token handling
   const [joinToken] = useState<string | null>(getJoinToken);
@@ -93,7 +108,7 @@ function App() {
     setBalance
   );
 
-  const handleSend = (text: string, attachments?: import('./types').ChatAttachment[]) => {
+  const handleSend = (text: string, attachments?: ChatAttachment[]) => {
     let chatId = activeId;
     if (!chatId) {
       chatId = create(model, activeProjectId ?? undefined);
@@ -104,6 +119,27 @@ function App() {
   const handleModelChange = (m: string) => {
     if (activeId) update(activeId, { model: m });
   };
+
+  const handleAgentSend = async (text: string) => {
+    if (agentSessions.activeId) {
+      agent.send(text, DEFAULT_AGENT_MODEL);
+      return;
+    }
+    // No session yet: create one, then send once it's the active session.
+    // useAgent queues the prompt internally and flushes when its socket opens.
+    setPendingAgentPrompt(text);
+    await agentSessions.create();
+  };
+
+  // Flush a prompt that was issued before a session existed, once the agent
+  // hook has switched to the new active session.
+  useEffect(() => {
+    if (pendingAgentPrompt && agentSessions.activeId) {
+      agent.send(pendingAgentPrompt, DEFAULT_AGENT_MODEL);
+      setPendingAgentPrompt(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingAgentPrompt, agentSessions.activeId]);
 
   const handleCreateProjectChat = useCallback((projectId: string) => {
     const id = create(model, projectId);
@@ -168,9 +204,14 @@ function App() {
     );
   }
 
+  const isAgent = mode === "agent";
+  const agentModelName = DEFAULT_AGENT_MODEL.replace("claude-", "").replace(/-/g, " ");
+
   return (
     <div className="h-full flex bg-[var(--bg-primary)] text-[var(--text-primary)]">
       <Sidebar
+        mode={mode}
+        onModeChange={setMode}
         conversations={conversations}
         activeId={activeId}
         onSelect={(id) => {
@@ -184,6 +225,15 @@ function App() {
           setSidebarOpen(false);
         }}
         onDelete={remove}
+        sessions={agentSessions.sessions}
+        agentActiveId={agentSessions.activeId}
+        agentLoading={agentSessions.loading}
+        onSelectSession={(id) => {
+          agentSessions.setActiveId(id);
+          setSidebarOpen(false);
+        }}
+        onCreateSession={() => void agentSessions.create()}
+        onDeleteSession={(id) => void agentSessions.remove(id)}
         isOpen={sidebarOpen}
         onToggle={() => setSidebarOpen(!sidebarOpen)}
         projects={projects}
@@ -205,11 +255,13 @@ function App() {
           <div className="flex flex-col min-w-0 flex-1 md:flex-none">
             <div className="flex items-center gap-2">
               <span className="text-[14px] sm:text-[15px] font-medium text-[var(--text-primary)] truncate leading-tight">
-                {activeProjectId
+                {isAgent
+                  ? agentSessions.sessions.find((s) => s.id === agentSessions.activeId)?.title || "Agent"
+                  : activeProjectId
                   ? projects.find((p) => p.id === activeProjectId)?.name || "Проект"
                   : active?.title || "New chat"}
               </span>
-              {activeChatProject && !activeProjectId && (
+              {!isAgent && activeChatProject && !activeProjectId && (
                 <button
                   onClick={() => setActiveProjectId(activeChatProject.id)}
                   className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-[var(--accent-subtle)] text-[var(--accent)] hover:opacity-80 transition-opacity shrink-0"
@@ -219,18 +271,27 @@ function App() {
               )}
             </div>
             <span className="text-[11px] text-[var(--text-muted)] truncate">
-              {activeProjectId ? "Проект" : modelName}
+              {isAgent ? agentModelName : activeProjectId ? "Проект" : modelName}
             </span>
           </div>
 
           <div className="hidden md:block flex-1" />
 
-          {isStreaming && !activeProjectId && (
-            <span className="hidden sm:inline-flex items-center gap-1.5 text-[12px] text-[var(--accent)] mr-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse" />
-              Streaming
-            </span>
-          )}
+          {isAgent
+            ? agent.isRunning && (
+                <span className="hidden sm:inline-flex items-center gap-1.5 text-[12px] text-[var(--accent)] mr-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse" />
+                  Running
+                </span>
+              )
+            : isStreaming && !activeProjectId && (
+                <span className="hidden sm:inline-flex items-center gap-1.5 text-[12px] text-[var(--accent)] mr-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse" />
+                  Streaming
+                </span>
+              )}
+
+          {isAgent && <WorkspaceChip />}
 
           {/* Balance pill */}
           <div
@@ -241,6 +302,26 @@ function App() {
             <span className="balance-full">{user.token_balance.toLocaleString()}</span>
             <span className="balance-compact">{formatCompact(user.token_balance)}</span>
           </div>
+
+          {isAgent && (
+            <button
+              onClick={() => setFilesOpen((o) => !o)}
+              className={`btn-icon ${filesOpen ? "text-[var(--text-primary)]" : ""}`}
+              title="Файлы воркспейса"
+              aria-label="Файлы воркспейса"
+            >
+              <Folder size={18} />
+            </button>
+          )}
+
+          <button
+            onClick={() => setSettingsOpen(true)}
+            className="btn-icon"
+            title="Настройки"
+            aria-label="Настройки"
+          >
+            <SettingsIcon size={18} />
+          </button>
 
           {user.role === "admin" && (
             <button
@@ -260,12 +341,12 @@ function App() {
           >
             <UserIcon size={18} />
           </button>
-          {!activeProjectId && (
+          {!isAgent && !activeProjectId && (
             <button
               onClick={() => setRightPanelOpen(!rightPanelOpen)}
               className="btn-icon"
-              title="Настройки"
-              aria-label="Настройки"
+              title="Настройки модели"
+              aria-label="Настройки модели"
             >
               {rightPanelOpen ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
             </button>
@@ -274,11 +355,21 @@ function App() {
 
         {user.status === "suspended" && (
           <div className="bg-[#fdd663]/10 border-b border-[#fdd663]/30 text-[var(--warning)] text-[13px] px-5 py-2.5">
-            Аккаунт временно приостановлен. Чат недоступен.
+            Аккаунт временно приостановлен. {isAgent ? "Агент" : "Чат"} недоступен.
           </div>
         )}
 
-        {activeProjectId ? (
+        {isAgent ? (
+          <AgentView
+            items={agent.items}
+            isRunning={agent.isRunning}
+            connected={agent.connected}
+            error={agent.error}
+            onSend={handleAgentSend}
+            onCancel={agent.cancel}
+            disabled={user.status !== "active"}
+          />
+        ) : activeProjectId ? (
           <ProjectView
             projectId={activeProjectId}
             currentUser={user}
@@ -305,7 +396,9 @@ function App() {
         )}
       </main>
 
-      {!activeProjectId && (
+      {isAgent && filesOpen && <FilesPanel onClose={() => setFilesOpen(false)} />}
+
+      {!isAgent && !activeProjectId && (
         <RightPanel
           model={model}
           onModelChange={handleModelChange}
@@ -318,6 +411,7 @@ function App() {
 
       {adminOpen && <AdminPanel onClose={() => setAdminOpen(false)} />}
       {accountOpen && <AccountMenu onClose={() => setAccountOpen(false)} />}
+      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
       {newProjectOpen && (
         <NewProjectModal
           onClose={() => setNewProjectOpen(false)}
