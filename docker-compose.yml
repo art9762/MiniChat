@@ -7,8 +7,21 @@ services:
       - "127.0.0.1:3001:3001"  # bind to localhost; expose via your reverse proxy (caddy/nginx)
     env_file:
       - ./server/.env
+    environment:
+      # Claude Code Web workspace config (also settable via server/.env).
+      # SECRETS_KEY: 64 hex chars (openssl rand -hex 32) — encrypts GitHub PATs.
+      - SECRETS_KEY=${SECRETS_KEY:-}
+      - WORKSPACE_IMAGE=${WORKSPACE_IMAGE:-minichat-workspace:latest}
+      - WORKSPACE_IDLE_MINUTES=${WORKSPACE_IDLE_MINUTES:-15}
     volumes:
       - ./data:/app/data
+      # ⚠️ SECURITY: mounting the Docker socket grants this container control of
+      # the host daemon — effectively root on the host. The server needs it to
+      # manage per-user workspace containers (dockerode). Keep this server on a
+      # dedicated, trusted host, never expose its admin surface publicly, and
+      # consider a docker-socket-proxy to restrict the API surface. Per-user
+      # workspace containers do NOT receive the socket (see ADR-001).
+      - /var/run/docker.sock:/var/run/docker.sock
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/api/health"]
       interval: 30s
