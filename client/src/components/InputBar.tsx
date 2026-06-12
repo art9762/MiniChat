@@ -35,9 +35,9 @@ export function InputBar({ onSend, isStreaming, disabled }: Props) {
   const charCount = text.length;
 
   return (
-    <div className="p-3 pt-1.5 border-t border-[var(--border)]">
-      <div className="max-w-3xl mx-auto">
-        <div className="relative flex items-end bg-[var(--bg-input)] border border-[var(--border)] rounded-lg px-3 py-2.5 focus-within:border-[var(--border-focus)] transition-colors">
+    <div className="p-3 pt-1.5">
+      <div className="composer-wrap">
+        <div className="composer flex items-end px-3 py-2.5">
           <textarea
             ref={ref}
             value={text}
@@ -63,20 +63,15 @@ export function InputBar({ onSend, isStreaming, disabled }: Props) {
             <button
               onClick={handleSubmit}
               disabled={disabled || (!text.trim() && !isStreaming)}
-              className="shrink-0 w-7 h-7 rounded-md bg-[var(--accent)] hover:bg-[var(--accent-hover)] disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-muted)] flex items-center justify-center transition-colors text-white"
+              className="shrink-0 w-8 h-8 rounded-full bg-[var(--accent)] hover:bg-[var(--accent-hover)] disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-muted)] flex items-center justify-center transition-colors text-white"
             >
-              {isStreaming ? <Square size={10} /> : <ArrowUp size={14} />}
+              {isStreaming ? <Square size={11} /> : <ArrowUp size={15} />}
             </button>
           </div>
         </div>
-        <div className="flex items-center justify-between mt-1.5 px-1">
-          <p className="text-[10px] text-[var(--text-muted)]">
-            Shift+Enter for new line
-          </p>
-          <p className="text-[10px] text-[var(--text-muted)]">
-            MiniChat
-          </p>
-        </div>
+        <p className="text-[10px] text-[var(--text-muted)] text-center mt-1.5">
+          Shift+Enter — новая строка
+        </p>
       </div>
     </div>
   );

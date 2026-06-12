@@ -1,3 +1,12 @@
+import type {
+  AgentServerMessage,
+  AgentClientMessage,
+  AgentSessionDTO,
+  WorkspaceDTO,
+  FileEntryDTO,
+  GithubStatusDTO,
+} from "../agentTypes";
+
 const API_BASE = "/api";
 
 async function jsonFetch(path: string, opts: RequestInit = {}) {
@@ -14,6 +23,13 @@ async function jsonFetch(path: string, opts: RequestInit = {}) {
   if (!res.ok) throw new Error((data as any)?.error || `HTTP ${res.status}`);
   return data;
 }
+
+const qs = (params: Record<string, string | undefined>) => {
+  const sp = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v != null) sp.set(k, v);
+  const s = sp.toString();
+  return s ? `?${s}` : "";
+};
 
 export const api = {
   // auth
@@ -47,6 +63,82 @@ export const api = {
     jsonFetch("/admin/token-codes", { method: "POST", body: JSON.stringify({ amount }) }),
   adminDeleteTokenCode: (code: string) =>
     jsonFetch(`/admin/token-codes/${code}`, { method: "DELETE" }),
+
+  // ── workspace ──────────────────────────────────────────────────────
+  workspace: (): Promise<WorkspaceDTO> => jsonFetch("/workspace"),
+  workspaceStart: () => jsonFetch("/workspace/start", { method: "POST" }),
+  workspaceStop: () => jsonFetch("/workspace/stop", { method: "POST" }),
+  workspaceReset: () =>
+    jsonFetch("/workspace/reset", { method: "POST", body: JSON.stringify({ confirm: true }) }),
+
+  // ── agent sessions ─────────────────────────────────────────────────
+  // Backend returns a bare array; normalize to { sessions } for callers.
+  agentSessions: async (): Promise<{ sessions: AgentSessionDTO[] }> => {
+    const data = await jsonFetch("/agent/sessions");
+    return { sessions: Array.isArray(data) ? data : data.sessions ?? [] };
+  },
+  // Backend returns the bare DTO (201); normalize to { session }.
+  agentCreateSession: async (title?: string): Promise<{ session: AgentSessionDTO }> => {
+    const data = await jsonFetch("/agent/sessions", {
+      method: "POST",
+      body: JSON.stringify({ title }),
+    });
+    return { session: data.session ?? data };
+  },
+  agentDeleteSession: (id: string) =>
+    jsonFetch(`/agent/sessions/${id}`, { method: "DELETE" }),
+  // Backend returns { session, events: [{ id, type, payload, createdAt }] }
+  // where `payload` is the full AgentServerMessage. Flatten to messages.
+  agentSessionEvents: async (id: string): Promise<{ events: AgentServerMessage[] }> => {
+    const data = await jsonFetch(`/agent/sessions/${id}/events`);
+    const raw: any[] = Array.isArray(data) ? data : data.events ?? [];
+    const events = raw
+      .map((e) => (e && e.payload ? e.payload : e))
+      .filter((e): e is AgentServerMessage => e && typeof e.type === "string");
+    return { events };
+  },
+
+  // ── files ──────────────────────────────────────────────────────────
+  // Backend returns a bare array; normalize to { entries, path }.
+  files: async (path = ""): Promise<{ entries: FileEntryDTO[]; path: string }> => {
+    const data = await jsonFetch(`/files${qs({ path })}`);
+    return { entries: Array.isArray(data) ? data : data.entries ?? [], path };
+  },
+  fileContent: (path: string): Promise<{ content: string; path: string }> =>
+    jsonFetch(`/files/content${qs({ path })}`),
+  fileWrite: (path: string, content: string) =>
+    jsonFetch("/files/content", { method: "PUT", body: JSON.stringify({ path, content }) }),
+  fileMkdir: (path: string) =>
+    jsonFetch("/files/mkdir", { method: "POST", body: JSON.stringify({ path }) }),
+  fileRename: (from: string, to: string) =>
+    jsonFetch("/files/rename", { method: "POST", body: JSON.stringify({ from, to }) }),
+  fileDelete: (path: string) =>
+    jsonFetch("/files/delete", { method: "POST", body: JSON.stringify({ path }) }),
+  filesUsage: (): Promise<{ usedBytes: number; quotaBytes: number | null }> =>
+    jsonFetch("/files/usage"),
+  fileUpload: async (dir: string, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(`${API_BASE}/files/upload${qs({ path: dir })}`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "X-Requested-With": "minichat" },
+      body: fd,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error((data as any)?.error || `HTTP ${res.status}`);
+    return data;
+  },
+  fileDownloadUrl: (path: string) => `${API_BASE}/files/download${qs({ path })}`,
+  workspaceDownloadUrl: () => `${API_BASE}/files/download${qs({ path: "" })}`,
+
+  // ── github ─────────────────────────────────────────────────────────
+  github: (): Promise<GithubStatusDTO> => jsonFetch("/github"),
+  githubSetToken: (token: string): Promise<GithubStatusDTO> =>
+    jsonFetch("/github/token", { method: "PUT", body: JSON.stringify({ token }) }),
+  githubDeleteToken: () => jsonFetch("/github/token", { method: "DELETE" }),
+  githubClone: (repoUrl: string, dir?: string) =>
+    jsonFetch("/github/clone", { method: "POST", body: JSON.stringify({ repoUrl, dir }) }),
 };
 
 export type StreamChunk =
@@ -94,4 +186,49 @@ export async function* streamChat(body: {
       } catch {}
     }
   }
+}
+
+// ── Agent WebSocket helper ───────────────────────────────────────────────────
+
+export interface AgentSocketHandlers {
+  onMessage: (msg: AgentServerMessage) => void;
+  onOpen?: () => void;
+  onClose?: (ev: CloseEvent) => void;
+  onError?: (ev: Event) => void;
+}
+
+export interface AgentSocket {
+  send: (msg: AgentClientMessage) => void;
+  close: () => void;
+  readonly socket: WebSocket;
+}
+
+export function openAgentSocket(
+  sessionId: string,
+  handlers: AgentSocketHandlers
+): AgentSocket {
+  const url = new URL("/api/agent/ws", location.origin);
+  url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
+  url.searchParams.set("session", sessionId);
+
+  const ws = new WebSocket(url.toString());
+
+  ws.addEventListener("open", () => handlers.onOpen?.());
+  ws.addEventListener("close", (ev) => handlers.onClose?.(ev));
+  ws.addEventListener("error", (ev) => handlers.onError?.(ev));
+  ws.addEventListener("message", (ev) => {
+    try {
+      handlers.onMessage(JSON.parse(ev.data) as AgentServerMessage);
+    } catch {
+      // ignore malformed frames
+    }
+  });
+
+  return {
+    socket: ws,
+    send: (msg) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+    },
+    close: () => ws.close(),
+  };
 }

@@ -1,22 +1,25 @@
 @import "tailwindcss";
 
 :root {
-  --bg-primary: #0a0a0a;
-  --bg-secondary: #111111;
-  --bg-tertiary: #181818;
-  --bg-sidebar: #060606;
+  /* Pure-black base palette */
+  --bg-primary: #000000;
+  --bg-secondary: #0a0a0a;
+  --bg-tertiary: #141414;
+  --bg-elevated: #141414;
+  --bg-sidebar: #0a0a0a;
   --bg-hover: #1a1a1a;
-  --bg-active: #222222;
+  --bg-active: #1f1f1f;
   --bg-input: #141414;
-  --border: #1e1e1e;
-  --border-subtle: #161616;
+  --border: #1f1f1f;
+  --border-subtle: #1f1f1f;
   --border-focus: #333333;
-  --text-primary: #e0e0e0;
-  --text-secondary: #8a8a8a;
-  --text-muted: #555555;
-  --accent: #3b82f6;
-  --accent-hover: #2563eb;
-  --accent-subtle: rgba(59, 130, 246, 0.08);
+  --text-primary: #ececec;
+  --text-secondary: #9b9b9b;
+  --text-muted: #6b6b6b;
+  /* Restrained accent (used for primary buttons / active states) */
+  --accent: #4b8bf4;
+  --accent-hover: #3b7be4;
+  --accent-subtle: rgba(75, 139, 244, 0.1);
   --danger: #ef4444;
   --success: #22c55e;
 }
@@ -27,13 +30,14 @@ html, body, #root {
 }
 
 ::-webkit-scrollbar {
-  width: 5px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--border);
+  background: #262626;
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
@@ -44,25 +48,56 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background: var(--bg-primary);
 }
 
+/* ── Markdown / prose ───────────────────────────────────────────────── */
 .prose pre {
   background: #0d0d0d !important;
-  padding: 0.875rem 1rem !important;
-  margin: 0.5rem 0 !important;
+  padding: 0 !important;
+  margin: 0.6rem 0 !important;
   border-radius: 0.5rem;
   border: 1px solid var(--border);
   font-size: 0.8em;
+  overflow: hidden;
 }
-.prose code {
+.prose pre > div {
+  margin: 0 !important;
+  background: transparent !important;
+}
+.prose :not(pre) > code {
   font-size: 0.84em;
-  color: #c9d1d9;
+  color: #e6c07b;
+  background: var(--bg-tertiary);
+  padding: 0.1em 0.35em;
+  border-radius: 0.3rem;
 }
 .prose p {
   margin: 0.5em 0;
 }
+.prose ul, .prose ol {
+  margin: 0.5em 0;
+  padding-left: 1.4em;
+}
+.prose li {
+  margin: 0.2em 0;
+}
 .prose a {
   color: var(--accent);
+  text-decoration: underline;
+}
+.prose h1, .prose h2, .prose h3 {
+  margin: 0.8em 0 0.4em;
+  font-weight: 600;
+}
+.prose table {
+  border-collapse: collapse;
+  margin: 0.5em 0;
+  font-size: 0.9em;
+}
+.prose th, .prose td {
+  border: 1px solid var(--border);
+  padding: 0.3em 0.6em;
 }
 
 input[type="range"] {
@@ -82,7 +117,7 @@ input[type="range"]::-webkit-slider-thumb {
   background: var(--accent);
   cursor: pointer;
   border: 2px solid var(--bg-primary);
-  box-shadow: 0 0 4px rgba(59, 130, 246, 0.3);
+  box-shadow: 0 0 4px rgba(75, 139, 244, 0.3);
 }
 
 /* Focus ring utility */
@@ -98,4 +133,50 @@ input[type="range"]::-webkit-slider-thumb {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-muted);
+}
+
+/* ── ChatGPT-style composer ─────────────────────────────────────────── */
+.composer-wrap {
+  max-width: 48rem;
+  margin: 0 auto;
+}
+.composer {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 1.5rem;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+  transition: border-color 0.15s ease;
+}
+.composer:focus-within {
+  border-color: var(--border-focus);
+}
+
+/* Centered chat column */
+.chat-col {
+  max-width: 48rem;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* User message bubble (ChatGPT style: right-aligned rounded pill) */
+.msg-user-bubble {
+  background: var(--bg-elevated);
+  border-radius: 1.25rem;
+  padding: 0.625rem 1rem;
+  max-width: 70%;
+}
+
+/* Tool card */
+.tool-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 0.625rem;
+  overflow: hidden;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.spin {
+  animation: spin 0.8s linear infinite;
 }

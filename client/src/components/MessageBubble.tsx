@@ -1,5 +1,6 @@
 import { User, Bot, Copy, Check } from "lucide-react";
 import { useState } from "react";
+import { Markdown } from "./Markdown";
 import type { Message } from "../types";
 
 interface Props {
@@ -43,9 +44,13 @@ export function MessageBubble({ message }: Props) {
               </button>
             )}
           </div>
-          <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap break-words text-[var(--text-primary)] leading-relaxed text-[13px]">
-            {message.content}
-          </div>
+          {isUser ? (
+            <div className="whitespace-pre-wrap break-words text-[var(--text-primary)] leading-relaxed text-[13px]">
+              {message.content}
+            </div>
+          ) : (
+            <Markdown>{message.content}</Markdown>
+          )}
         </div>
       </div>
     </div>

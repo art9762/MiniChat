@@ -33,7 +33,7 @@ export function AccountMenu({ onClose }: Props) {
       onClick={onClose}
     >
       <div
-        className="w-80 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-2xl p-4 mt-12 mr-4 space-y-4"
+        className="w-80 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-2xl p-4 mt-12 mr-4 space-y-4"
         onClick={(e) => e.stopPropagation()}
       >
         <div>
@@ -70,7 +70,7 @@ export function AccountMenu({ onClose }: Props) {
             />
             <button
               onClick={redeem}
-              className="bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg px-3"
+              className="bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm rounded-lg px-3"
             >
               OK
             </button>
