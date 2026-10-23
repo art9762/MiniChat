@@ -1,6 +1,46 @@
-# Minichat — TODO
+# MiniChat — remaining work
 
-## 🗂 Projects (workspace-style folders) — SPEC LOCKED
+[Setup and checks](README.md) · [Chat API](server/routes/chat.ts) · [Database schema](server/lib/db.ts)
+
+## Current state
+
+The chat/project implementation includes streamed responses, first-message persistence,
+project IDs in chat requests, and attachment-only sends. The Projects foundation
+is already present; the original specification below is design history rather
+than a list of features still awaiting implementation.
+
+Implementation baseline `065a534` was checked on 2026-10-23: five rendered-app
+regression tests, client/server builds and a temporary-database server smoke check
+passed. [Hosted CI](https://github.com/art9762/MiniChat/actions/runs/39944309829)
+also passed. Model streams are mocked in the client tests; live Trinity calls,
+embedding/retrieval quality, automatic memory quality and real multi-user sessions
+remain unverified.
+
+## Priorities and acceptance criteria
+
+P0 closes access-control gaps; P1 completes core behavior and its evidence; P2 follows
+after those workflows are reliable. These are open tasks, not completed capabilities.
+
+| Priority | Remaining task and source | Acceptance criteria |
+|----------|---------------------------|---------------------|
+| P0 | Account and attachment isolation. [Conversation storage](client/src/hooks/useConversations.ts) uses one browser key; [attachment access](server/routes/attachments.ts) permits authenticated access when a chat has no database row. | Two-account tests show no cross-account history after sign-out/sign-in. Unknown or unowned chat IDs cannot expose or accept another account's attachments; intended project-member access has explicit tests. |
+| P1 | Complete Stop/cancellation across the [hook](client/src/hooks/useChat.ts), [composer](client/src/components/InputBar.tsx), [stream client](client/src/lib/api.ts) and [server](server/routes/chat.ts). | Stop aborts the browser request and upstream generation, preserves received text and settles/refunds the balance hold exactly once according to a tested billing rule. |
+| P1 | Normalize upstream base URLs. [Chat providers](server/lib/providers.ts) append `/chat/completions`, while [embeddings](server/lib/embeddings.ts) append `/v1/embeddings`; the [example](server/.env.example) already includes `/v1`. | One documented configuration reaches both endpoints with no duplicated version segment. Local provider fixtures cover URLs, response validation and keyword fallback without paid calls. |
+| P1 | Add API integration evidence for [billing, project context and attachments](server/routes/chat.ts). Current regression tests mock fetch. | Temporary SQLite and local provider fixtures cover success, upstream errors, disconnects, membership, ownership, prompt/context injection and memory hooks; balances and usage records agree in every terminal case. |
+| P1 | Finish owned chat persistence and moving existing chats into projects. The [move API client](client/src/lib/api.ts) has no UI caller, and [conversation history](client/src/hooks/useConversations.ts) stays local. | An owned chat can be moved through the UI, survives reload with the same project and messages, and obeys account/project permissions. Coordinate with any proposed server-backed history work before implementing a duplicate. |
+| P1 | Resolve dependency findings and broaden quality checks. Earlier installs reported audit advisories; the [client lint command](client/package.json) is separate from [CI](.github/workflows/ci.yml). | A fresh audit identifies current affected packages; fixes or documented exceptions accompany clean install/build/tests. Add useful lint/API coverage to CI and retain the existing chat regressions. |
+| P2 | Complete attachment storage lifecycle and image-in-project policy. [Uploads](server/routes/attachments.ts) still have a cleanup TODO; [project indexing](server/routes/projects.ts) only indexes extracted text. | Unlinked files are cleaned after the documented retention period without deleting referenced files. The UI clearly states how project images are used, backed by tests for that chosen behavior. |
+| P2 | Measure loading and mobile workflows. The prior production build reported a large client bundle. | Record bundle/load measurements and browser evidence for new chat, project navigation, upload, errors and cancellation; optimize measured bottlenecks with no behavior regressions. |
+
+Agent workspaces are outside the current chat/project branch. Evaluate the existing
+[agent-workspace proposal](https://github.com/art9762/MiniChat/pull/7) separately;
+this roadmap does not treat it as shipped functionality.
+
+## Original Projects specification
+
+The following retains the agreed design. For the current schema and migrations,
+use [server/lib/db.ts](server/lib/db.ts); the illustrative SQL below predates later
+attachment migrations.
 
 **Idea:** "Project" — это папка с чатами + собственная память/контекст для агента.
 
@@ -91,8 +131,8 @@ CREATE TABLE chat_attachments (
 ALTER TABLE chats ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE SET NULL;
 ```
 
-### Phases (roadmap)
-- **P1 — Backend skeleton:** migrations, CRUD `/projects`, `/projects/:id/members`, invite flow. Move chat to project. *(ready to start)*
+### Original delivery phases (historical)
+- **P1 — Backend skeleton:** migrations, CRUD `/projects`, `/projects/:id/members`, invite flow. Move chat to project.
 - **P2 — File parsing module:** shared lib `server/lib/files.ts` — parse PDF/docx/images/text. Used by projects + chat attachments.
 - **P3 — RAG:** embeddings via Trinity, chunking (~500 tok), cosine retrieval, top-K injection into chat context. Master prompt always prepended.
 - **P4 — Auto-memory:** post-chat hook → summarize → update `projects.memory`.
