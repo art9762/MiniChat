@@ -6,14 +6,14 @@ export function useChat(
   messages: Message[],
   model: string,
   settings: Settings,
-  onUpdate: (msgs: Message[]) => void,
+  onUpdate: (chatId: string, msgs: Message[]) => void,
   onBalance?: (balance: number) => void
 ) {
   const [isStreaming, setIsStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   const send = useCallback(
-    async (text: string, chatId?: string | null, attachments?: ChatAttachment[]) => {
+    async (text: string, chatId: string, attachments?: ChatAttachment[], projectId?: string | null) => {
       const userMsg: Message = {
         id: crypto.randomUUID(),
         role: "user",
@@ -27,13 +27,13 @@ export function useChat(
       };
 
       const updated = [...messages, userMsg, assistantMsg];
-      onUpdate(updated);
+      onUpdate(chatId, updated);
       setIsStreaming(true);
 
       try {
         const apiMessages = updated
-          .filter((m) => m.content || m.role === "assistant")
           .slice(0, -1)
+          .filter((m) => m.content || m.role === "assistant" || m.attachments?.length)
           .map((m) => ({ role: m.role, content: m.content }));
 
         let content = "";
@@ -42,7 +42,8 @@ export function useChat(
           model,
           temperature: settings.temperature,
           systemPrompt: settings.systemPrompt || undefined,
-          chatId: chatId ?? undefined,
+          chatId,
+          projectId: projectId ?? undefined,
           attachmentIds: attachments?.map((a) => a.id),
         })) {
           if ("content" in chunk) {
@@ -50,7 +51,7 @@ export function useChat(
             const newMsgs = updated.map((m) =>
               m.id === assistantMsg.id ? { ...m, content } : m
             );
-            onUpdate(newMsgs);
+            onUpdate(chatId, newMsgs);
           } else if ("usage" in chunk) {
             onBalance?.(chunk.usage.balance);
           } else if ("error" in chunk) {
@@ -63,7 +64,7 @@ export function useChat(
             ? { ...m, content: `Error: ${err.message}` }
             : m
         );
-        onUpdate(newMsgs);
+        onUpdate(chatId, newMsgs);
       } finally {
         setIsStreaming(false);
       }

@@ -119,6 +119,7 @@ export async function* streamChat(body: {
   temperature?: number;
   systemPrompt?: string;
   chatId?: string;
+  projectId?: string;
   attachmentIds?: string[];
 }): AsyncGenerator<StreamChunk> {
   const res = await fetch(`${API_BASE}/chat`, {
