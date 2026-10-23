@@ -76,13 +76,12 @@ function App() {
   const modelName = MODEL_NAMES[model] || model;
 
   const handleMessagesUpdate = useCallback(
-    (msgs: Message[]) => {
-      if (!activeId) return;
+    (chatId: string, msgs: Message[]) => {
       const title =
         msgs.find((m) => m.role === "user")?.content.slice(0, 40) || "New Chat";
-      update(activeId, { messages: msgs, title });
+      update(chatId, { messages: msgs, title });
     },
-    [activeId, update]
+    [update]
   );
 
   const { send, isStreaming } = useChat(
@@ -98,7 +97,7 @@ function App() {
     if (!chatId) {
       chatId = create(model, activeProjectId ?? undefined);
     }
-    send(text, chatId, attachments);
+    send(text, chatId, attachments, active?.project_id ?? activeProjectId);
   };
 
   const handleModelChange = (m: string) => {
